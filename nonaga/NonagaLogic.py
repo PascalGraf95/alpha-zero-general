@@ -1,15 +1,3 @@
-'''
-Author: Eric P. Nichols
-Date: Feb 8, 2008.
-Board class.
-Board data:
-  1=white, -1=black, 0=empty
-  first dim is column , 2nd is row:
-     pieces[1][7] is the square in column 2,
-     at the opposite end of the board in row 8.
-Squares are stored and manipulated as (x,y) tuples.
-x is the column, y is the row.
-'''
 import numpy as np
 
 class Board():
@@ -214,71 +202,20 @@ class Board():
         return legal_moves
 
     def execute_move(self, move, color):
-        """Perform the given move on the board; flips pieces as necessary.
-        color gives the color pf the piece to play (1=white,-1=black)
+        """Perform the given move on the board; (1=red,-1=black)
         """
+        token_start = move[0]
+        token_end = move[1]
+        plate_start = move[2]
+        plate_end = move[3]
 
-        #Much like move generation, start at the new piece's square and
-        #follow it on all 8 directions to look for a piece allowing flipping.
+        # Move Token
+        self.pieces[1][token_start[0]][token_start[1]] = 0
+        self.pieces[1][token_end[0]][token_end[1]] = color
 
-        # Add the piece to the empty square.
-        # print(move)
-        flips = [flip for direction in self.__directions
-                      for flip in self._get_flips(move, direction, color)]
-        assert len(list(flips))>0
-        for x, y in flips:
-            #print(self[x][y],color)
-            self[x][y] = color
-
-    def _discover_move(self, origin, direction):
-        """ Returns the endpoint for a legal move, starting at the given origin,
-        moving by the given increment."""
-        x, y = origin
-        color = self[x][y]
-        flips = []
-
-        for x, y in Board._increment_move(origin, direction, self.n):
-            if self[x][y] == 0:
-                if flips:
-                    # print("Found", x,y)
-                    return (x, y)
-                else:
-                    return None
-            elif self[x][y] == color:
-                return None
-            elif self[x][y] == -color:
-                # print("Flip",x,y)
-                flips.append((x, y))
-
-    def _get_flips(self, origin, direction, color):
-        """ Gets the list of flips for a vertex and direction to use with the
-        execute_move function """
-        #initialize variables
-        flips = [origin]
-
-        for x, y in Board._increment_move(origin, direction, self.n):
-            #print(x,y)
-            if self[x][y] == 0:
-                return []
-            if self[x][y] == -color:
-                flips.append((x, y))
-            elif self[x][y] == color and len(flips) > 0:
-                #print(flips)
-                return flips
-
-        return []
-
-    @staticmethod
-    def _increment_move(move, direction, n):
-        # print(move)
-        """ Generator expression for incrementing moves """
-        move = list(map(sum, zip(move, direction)))
-        #move = (move[0]+direction[0], move[1]+direction[1])
-        while all(map(lambda x: 0 <= x < n, move)): 
-        #while 0<=move[0] and move[0]<n and 0<=move[1] and move[1]<n:
-            yield move
-            move=list(map(sum,zip(move,direction)))
-            #move = (move[0]+direction[0],move[1]+direction[1])
+        # Move Plate
+        self.pieces[1][plate_start[0]][plate_start[1]] = 0
+        self.pieces[1][plate_end[0]][plate_end[1]] = 1
 
 
 if __name__ == '__main__':
