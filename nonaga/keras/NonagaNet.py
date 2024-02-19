@@ -3,30 +3,45 @@ sys.path.append('..')
 from utils import *
 
 import argparse
-from tensorflow.keras.models import *
-from tensorflow.keras.layers import *
-from tensorflow.keras.optimizers import *
+from keras.models import *
+from keras.layers import Conv2D, Input, BatchNormalization, Flatten, Dense, Dropout, Softmax
+from keras.optimizers import Adam
 
 class NonagaNet():
     def __init__(self, game, args):
         # game params
-        self.board_x, self.board_y = game.get_board_size()
+        self.board_width, self.board_height = game.get_board_size()
         self.action_size = game.get_action_size()
         self.args = args
 
         # Neural Net
-        self.input_boards = Input(shape=(self.board_x, self.board_y))    # s: batch_size x board_x x board_y
+        self.input_boards = Input(shape=(self.board_width, self.board_height, 3)) # batch_size  x board_x x board_y x 3
+        x = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same",)(self.input_boards)
+        x = BatchNormalization()(x)
+        x = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same")(x)
+        x = BatchNormalization()(x)
+        x = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same")(x)
+        x = BatchNormalization()(x)
+        x = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same")(x)
+        x = BatchNormalization()(x)
+        x = Conv2D(args.num_channels/2, kernel_size=1)(x)
+        x = Flatten()(x)
 
-        x_image = Reshape((self.board_x, self.board_y, 1))(self.input_boards)                # batch_size  x board_x x board_y x 1
-        h_conv1 = Activation('relu')(BatchNormalization(axis=3)(Conv2D(args.num_channels, 3, padding='same', use_bias=True)(x_image)))         # batch_size  x board_x x board_y x num_channels
-        h_conv2 = Activation('relu')(BatchNormalization(axis=3)(Conv2D(args.num_channels, 3, padding='same', use_bias=True)(h_conv1)))         # batch_size  x board_x x board_y x num_channels
-        h_conv3 = Activation('relu')(BatchNormalization(axis=3)(Conv2D(args.num_channels, 3, padding='same', use_bias=True)(h_conv2)))        # batch_size  x (board_x-2) x (board_y-2) x num_channels
-        h_conv4 = Activation('relu')(BatchNormalization(axis=3)(Conv2D(args.num_channels, 3, padding='same', use_bias=True)(h_conv3)))        # batch_size  x (board_x-4) x (board_y-4) x num_channels
-        h_conv4_flat = Flatten()(h_conv4)
-        s_fc1 = Dropout(args.dropout)(Activation('relu')(BatchNormalization(axis=1)(Dense(1024, use_bias=False)(h_conv4_flat))))  # batch_size x 1024
-        s_fc2 = Dropout(args.dropout)(Activation('relu')(BatchNormalization(axis=1)(Dense(512, use_bias=False)(s_fc1))))          # batch_size x 1024
-        self.pi = Dense(self.action_size, activation='softmax', name='pi')(h_conv4)   # batch_size x self.action_size
-        self.v = Dense(1, activation='tanh', name='v')(s_fc2)                    # batch_size x 1
+        # Policy Head 1 - piece Movement
+        # 6 layers of left/right/top right/top left/bottom right/bottom left
+        self.pi1 = Dense(self.board_width*self.board_height*6, activation="softmax")(x)
 
-        self.model = Model(inputs=self.input_boards, outputs=[self.pi, self.v])
-        self.model.compile(loss=['categorical_crossentropy','mean_squared_error'], optimizer=Adam(args.lr))
+        # Policy Head 2 - tile Start and Target
+        # 1 layer for tile to
+        self.pi2 = Dense(self.board_width*self.board_height, activation="softmax")(x)
+
+        # Value
+        v = Dense(512, activation="relu")(x)
+        v = Dense(256, activation="relu")(v)
+        self.v = Dense(1, activation='tanh', name='v')(v)
+
+        self.pi1_model = Model(inputs=self.input_boards, outputs=[self.pi1, self.v])
+        self.pi1_model.compile(loss=['categorical_crossentropy', 'mean_squared_error'], optimizer=Adam(args.lr))
+        self.pi2_model = Model(inputs=self.input_boards, outputs=[self.pi2, self.v])
+        self.pi2_model.compile(loss=['categorical_crossentropy', 'mean_squared_error'], optimizer=Adam(args.lr))
+

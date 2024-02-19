@@ -1,107 +1,102 @@
 from __future__ import print_function
 import sys
 sys.path.append('..')
-from Game import Game
-from .NonagaLogic import Board
+from Game import Game as BaseGame
+from NonagaLogic import Game
 import numpy as np
 
 
-class NonagaGame(Game):
+class NonagaGame(BaseGame):
+    def __init__(self):
+        super().__init__()
+        self.game = self.reset_board()
+
     def reset_board(self):
         # return initial board (numpy board)
-        board = Board()
-        return np.array(board.pieces)
+        return Game()
 
     def get_board_size(self):
         return 15, 12
 
     def get_action_size(self):
         # return number of actions
-        return self.n*self.n + 1
+        return 15 * 12
 
-    def get_next_state(self, board, player, action):
-        # if player takes action on board, return next (board,player)
-        # action must be a valid move
-        if action == self.n*self.n:
-            return board, -player
+    def get_next_state(self, player, action):
+        new_game = Game()
+        new_game.pieces = np.copy(self.game.board)
+        new_game.execute_move(action, player)
+        return new_game.board, -player
 
-        b = Board()
-        b.pieces = np.copy(board)
-        move = (int(action/self.n), action % self.n)
-        b.execute_move(move, player)
-        return (b.pieces, -player)
+    def get_valid_moves(self, player):
+        return self.game.get_legal_moves(player)
 
-    def get_valid_moves(self, board, player):
-        # return a fixed size binary vector
-        valids = [0]*self.getActionSize()
-        b = Board()
-        b.pieces = np.copy(board)
-        legalMoves = b.get_legal_moves(player)
-        if len(legalMoves)==0:
-            valids[-1]=1
-            return np.array(valids)
-        for x, y in legalMoves:
-            valids[self.n*x+y]=1
-        return np.array(valids)
-
-    def has_game_ended(self, board, player):
+    def has_game_ended(self, player):
         # return 0 if not ended, 1 if player 1 won, -1 if player 1 lost
-        # player = 1
-        b = Board()
-        b.pieces = np.copy(board)
-        if b.has_legal_moves(player):
-            return 0
-        if b.has_legal_moves(-player):
-            return 0
-        if b.countDiff(player) > 0:
-            return 1
-        return -1
+        return self.game.check_for_game_end(player)
 
-    def get_canonical_form(self, board, player):
+    def get_canonical_form(self, player):
         # return state if player==1, else return -state if player==-1
-        return player*board
+        self.game.board[1] *= player
+        return self.game.board
 
     def get_symmetries(self, board, pi):
-        # mirror, rotational
-        assert(len(pi) == self.n**2+1)  # 1 for pass
-        pi_board = np.reshape(pi[:-1], (self.n, self.n))
-        l = []
+        return []
 
-        for i in range(1, 5):
-            for j in [True, False]:
-                newB = np.rot90(board, i)
-                newPi = np.rot90(pi_board, i)
-                if j:
-                    newB = np.fliplr(newB)
-                    newPi = np.fliplr(newPi)
-                l += [(newB, list(newPi.ravel()) + [pi[-1]])]
-        return l
+    def get_string_representation(self, game):
+        return game.get_string_representation()
 
-    def get_string_representation(self, board):
-        return board.tostring()
+    def display(self):
+        width = 15
+        height = 12
+        print("    ", end="")
 
-    def get_readable_string_representation(self, board):
-        board_s = "".join(self.square_content[square] for row in board for square in row)
-        return board_s
+        # For each column print the index
+        for x in range(width):
+            print("{:02d}".format(x), end=" ")
 
-    def get_score(self, board, player):
-        b = Board(self.n)
-        b.pieces = np.copy(board)
-        return b.countDiff(player)
-
-    @staticmethod
-    def display(board):
-        n = board.shape[0]
-        print("   ", end="")
-        for y in range(n):
-            print(y, end=" ")
         print("")
-        print("-----------------------")
-        for y in range(n):
-            print(y, "|", end="")    # print the row #
-            for x in range(n):
-                piece = board[y][x]    # get the piece to print
-                print(NonagaGame.square_content[piece], end=" ")
+        print("---------------------------------------------------")
+        for y in range(height):
+            # For each row print the index
+            print("{:02d} |".format(y), end="")
+            for x in range(width):
+                letter = " " if self.game.board[0][y][x] == 0 else "O"
+                if self.game.board[1][y][x] != 0:
+                    letter = "r" if self.game.board[1][y][x] == 1 else "b"
+                print(letter, end="  ")
             print("|")
+        print("---------------------------------------------------")
 
-        print("-----------------------")
+
+if __name__ == '__main__':
+    nonaga_game = NonagaGame()
+    nonaga_game.display()
+
+    player = 1
+    num_turns = 0
+    while True:
+        num_turns += 1
+        legal_moves = nonaga_game.get_valid_moves(player)
+
+        if len(legal_moves) == 0:
+            print("NO LEGAL MOVE")
+            break
+
+        move = legal_moves[np.random.randint(0, len(legal_moves))]
+        nonaga_game.game.execute_move(move, player)
+
+        if num_turns % 3 == 0:
+            # nonaga_game.display()
+            player *= -1
+
+            if nonaga_game.has_game_ended(player) != 0:
+                print("WINNER WINNER")
+                break
+
+        if num_turns > 200:
+            print("RESET")
+            num_turns = 0
+            player = 1
+            nonaga_game.reset_board()
+    nonaga_game.display()

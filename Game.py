@@ -11,7 +11,7 @@ class Game():
     def __init__(self):
         pass
 
-    def getInitBoard(self):
+    def reset_board(self):
         """
         Returns:
             startBoard: a representation of the board (ideally this is the form
@@ -19,21 +19,21 @@ class Game():
         """
         pass
 
-    def getBoardSize(self):
+    def get_board_size(self):
         """
         Returns:
             (x,y): a tuple of board dimensions
         """
         pass
 
-    def getActionSize(self):
+    def get_action_size(self):
         """
         Returns:
             actionSize: number of all possible actions
         """
         pass
 
-    def getNextState(self, board, player, action):
+    def get_next_state(self, board, player, action):
         """
         Input:
             board: current board
@@ -46,7 +46,7 @@ class Game():
         """
         pass
 
-    def getValidMoves(self, board, player):
+    def get_valid_moves(self, board, player):
         """
         Input:
             board: current board
@@ -59,7 +59,7 @@ class Game():
         """
         pass
 
-    def getGameEnded(self, board, player):
+    def has_game_ended(self, board, player):
         """
         Input:
             board: current board
@@ -72,7 +72,7 @@ class Game():
         """
         pass
 
-    def getCanonicalForm(self, board, player):
+    def get_canonical_form(self, board, player):
         """
         Input:
             board: current board
@@ -88,7 +88,7 @@ class Game():
         """
         pass
 
-    def getSymmetries(self, board, pi):
+    def get_symmetries(self, board, pi):
         """
         Input:
             board: current board
@@ -101,7 +101,7 @@ class Game():
         """
         pass
 
-    def stringRepresentation(self, board):
+    def string_representation(self, board):
         """
         Input:
             board: current board

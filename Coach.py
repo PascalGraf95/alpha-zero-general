@@ -26,8 +26,9 @@ class Coach():
         self.pnet = self.nnet.__class__(self.game)  # the competitor network
         self.args = args
         self.mcts = MCTS(self.game, self.nnet, self.args)
-        self.trainExamplesHistory = []  # history of examples from args.numItersForTrainExamplesHistory latest iterations
-        self.skipFirstSelfPlay = False  # can be overriden in loadTrainExamples()
+        self.train_examples_history = []  # history of examples from args.numItersForTrainExamplesHistory latest iterations
+        self.skip_first_step_self_play = False  # can be overriden in loadTrainExamples()
+        self.current_player = 0
 
     def executeEpisode(self):
         """
@@ -45,28 +46,28 @@ class Coach():
                            pi is the MCTS informed policy vector, v is +1 if
                            the player eventually won the game, else -1.
         """
-        trainExamples = []
-        board = self.game.getInitBoard()
-        self.curPlayer = 1
-        episodeStep = 0
+        train_examples = []
+        board = self.game.reset_board()
+        self.current_player = 1
+        episode_step = 0
 
         while True:
-            episodeStep += 1
-            canonicalBoard = self.game.getCanonicalForm(board, self.curPlayer)
-            temp = int(episodeStep < self.args.tempThreshold)
+            episode_step += 1
+            canonical_board = self.game.get_canonical_form(board, self.current_player)
+            temp = int(episode_step < self.args.temp_threshold)
 
-            pi = self.mcts.getActionProb(canonicalBoard, temp=temp)
-            sym = self.game.getSymmetries(canonicalBoard, pi)
+            pi = self.mcts.getActionProb(canonical_board, temp=temp)
+            sym = self.game.get_symmetries(canonical_board, pi)
             for b, p in sym:
-                trainExamples.append([b, self.curPlayer, p, None])
+                train_examples.append([b, self.current_player, p, None])
 
             action = np.random.choice(len(pi), p=pi)
-            board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
+            board, self.current_player = self.game.getNextState(board, self.current_player, action)
 
-            r = self.game.getGameEnded(board, self.curPlayer)
+            r = self.game.getGameEnded(board, self.current_player)
 
             if r != 0:
-                return [(x[0], x[2], r * ((-1) ** (x[1] != self.curPlayer))) for x in trainExamples]
+                return [(x[0], x[2], r * ((-1) ** (x[1] != self.current_player))) for x in train_examples]
 
     def learn(self):
         """
