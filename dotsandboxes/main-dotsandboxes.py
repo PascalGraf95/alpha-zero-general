@@ -2,7 +2,7 @@ import logging
 
 import coloredlogs
 
-from Coach import Coach
+from Trainer import Trainer
 from utils import dotdict
 from dotsandboxes.keras.NNet import NNetWrapper as nn
 
@@ -44,7 +44,7 @@ def main():
     else:
         log.warning('Not loading a checkpoint!')
     log.info('Loading the Coach...')
-    c = Coach(g, nnet, args)
+    c = Trainer(g, nnet, args)
     log.info('Starting the learning process 🎉')
     c.learn()
 

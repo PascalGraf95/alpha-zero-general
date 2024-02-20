@@ -40,7 +40,6 @@ class Game:
         self.board[1][3][9] = self.board[1][7][9] = self.board[1][5][3] = -1
 
         self.legal_moves = []
-        self.last_immovable_tile = [0, 0]
 
         # One turn consists of three phases (0-2)
         self.phase = 0
@@ -50,6 +49,12 @@ class Game:
     def __getitem__(self, index): 
         return self.pieces[index]
     """
+
+    def get_action_size(self):
+        if self.phase == 0:
+            return self.width * self.height * 6
+        else:
+            return self.width * self.height
 
     def get_string_representation(self):
         return np.array2string(self.board)
@@ -240,9 +245,21 @@ class Game:
         if neighbors_occupied >= 2:
             return True
 
-    def execute_move(self, move, player):
+    def execute_move(self, move, player, form=0):
         """Perform the given move on the board; (1=red,-1=black)
         """
+        if form == 0:
+            if self.phase == 0:
+                input_move = np.zeros((self.width*self.height*6))
+                input_move[move] = 1
+                reshaped_input = np.reshape(input_move, (6, self.width, self.height))
+            else:
+                input_move = np.zeros((self.width*self.height))
+                input_move[move] = 1
+                reshaped_input = np.reshape(input_move, (self.height, self.width))
+            move_array = np.nonzero(reshaped_input)
+            move = [move_array[2][0], move_array[0][0], move_array[1][0]]
+
         if self.phase == 0:
             # region - Piece Moves -
             self.board[1][move[0]][move[1]] = 0
@@ -282,72 +299,72 @@ class Game:
         for x in range(self.width):
             for y in range(self.height):
                 # Horizontal Line
-                if self.same_color_on_left(player, x, y) and self.same_color_on_right(player, x, y) and self.color_on_field(player, x, y):
+                if self.same_player_left(player, x, y) and self.same_player_right(player, x, y) and self.player_on_current_field(player, x, y):
                     return 1
-                if self.same_color_on_left(-player, x, y) and self.same_color_on_right(-player, x, y) and self.color_on_field(-player, x, y):
+                if self.same_player_left(-player, x, y) and self.same_player_right(-player, x, y) and self.player_on_current_field(-player, x, y):
                     return -1
 
                 # Triangle
-                if self.same_color_bottom_left(player, x, y) and self.same_color_bottom_right(player, x, y) and self.color_on_field(player, x, y):
+                if self.same_player_bottom_left(player, x, y) and self.same_player_bottom_right(player, x, y) and self.player_on_current_field(player, x, y):
                     return 1
-                if self.same_color_bottom_left(-player, x, y) and self.same_color_bottom_right(-player, x, y) and self.color_on_field(-player, x, y):
+                if self.same_player_bottom_left(-player, x, y) and self.same_player_bottom_right(-player, x, y) and self.player_on_current_field(-player, x, y):
                     return -1
 
                 # /-
-                if self.same_color_bottom_left(player, x, y) and self.same_color_on_right(player, x, y) and self.color_on_field(player, x, y):
+                if self.same_player_bottom_left(player, x, y) and self.same_player_right(player, x, y) and self.player_on_current_field(player, x, y):
                     return 1
-                if self.same_color_bottom_left(-player, x, y) and self.same_color_on_right(-player, x, y) and self.color_on_field(-player, x, y):
+                if self.same_player_bottom_left(-player, x, y) and self.same_player_right(-player, x, y) and self.player_on_current_field(-player, x, y):
                     return -1
 
                 # -\
-                if self.same_color_bottom_right(player, x, y) and self.same_color_on_left(player, x, y) and self.color_on_field(player, x, y):
+                if self.same_player_bottom_right(player, x, y) and self.same_player_left(player, x, y) and self.player_on_current_field(player, x, y):
                     return 1
-                if self.same_color_bottom_right(-player, x, y) and self.same_color_on_left(-player, x, y) and self.color_on_field(-player, x, y):
+                if self.same_player_bottom_right(-player, x, y) and self.same_player_left(-player, x, y) and self.player_on_current_field(-player, x, y):
                     return -1
 
                 # _/
-                if self.same_color_on_left(player, x, y) and self.same_color_top_right(player, x, y) and self.color_on_field(player, x, y):
+                if self.same_player_left(player, x, y) and self.same_player_top_right(player, x, y) and self.player_on_current_field(player, x, y):
                     return 1
-                if self.same_color_on_left(-player, x, y) and self.same_color_top_right(-player, x, y) and self.color_on_field(-player, x, y):
+                if self.same_player_left(-player, x, y) and self.same_player_top_right(-player, x, y) and self.player_on_current_field(-player, x, y):
                     return -1
 
                 # \_
-                if self.same_color_top_left(player, x, y) and self.same_color_on_right(player, x, y) and self.color_on_field(player, x, y):
+                if self.same_player_top_left(player, x, y) and self.same_player_right(player, x, y) and self.player_on_current_field(player, x, y):
                     return 1
-                if self.same_color_top_left(-player, x, y) and self.same_color_on_right(-player, x, y) and self.color_on_field(-player, x, y):
+                if self.same_player_top_left(-player, x, y) and self.same_player_right(-player, x, y) and self.player_on_current_field(-player, x, y):
                     return -1
 
         return 0
 
-    def color_on_field(self, player, x, y):
+    def player_on_current_field(self, player, x, y):
         return self.board[1][y][x] == player
 
-    def same_color_on_right(self, player, x, y):
+    def same_player_right(self, player, x, y):
         if x+2 < self.width:
             return self.board[1][y][x+2] == player
         return False
 
-    def same_color_on_left(self, player, x, y):
+    def same_player_left(self, player, x, y):
         if x-2 >= 0:
             return self.board[1][y][x-2] == player
         return False
 
-    def same_color_top_left(self, player, x, y):
+    def same_player_top_left(self, player, x, y):
         if x-1 >= 0 and y-1 >= 0:
             return self.board[1][y-1][x-1] == player
         return False
 
-    def same_color_top_right(self, player, x, y):
+    def same_player_top_right(self, player, x, y):
         if x+1 < self.width and y - 1 >= 0:
             return self.board[1][y-1][x+1] == player
         return False
 
-    def same_color_bottom_left(self, player, x, y):
+    def same_player_bottom_left(self, player, x, y):
         if x-1 >= 0 and y + 1 < self.height:
             return self.board[1][y+1][x-1] == player
         return False
 
-    def same_color_bottom_right(self, player, x, y):
+    def same_player_bottom_right(self, player, x, y):
         if x+1 < self.width and y + 1 < self.height:
             return self.board[1][y+1][x+1] == player
         return False

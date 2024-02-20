@@ -3,7 +3,7 @@ import sys
 from rts.src.config_class import CONFIG
 
 sys.path.append('..')
-from Coach import Coach
+from Trainer import Trainer
 # from rts.configurations.ConfigWrapper import LearnArgs
 from rts.RTSGame import RTSGame as Game
 from rts.keras.NNet import NNetWrapper as nn
@@ -30,7 +30,7 @@ if __name__ == "__main__":
         nnet.load_checkpoint(CONFIG.learn_args.load_folder_file[0], CONFIG.learn_args.load_folder_file[1])
 
     # Create coach instance that starts teaching nnet on newly created game using self-play
-    c = Coach(g, nnet, CONFIG.learn_args)
+    c = Trainer(g, nnet, CONFIG.learn_args)
     if CONFIG.learn_args.load_model:
         print("Load trainExamples from file")
         c.loadTrainExamples()

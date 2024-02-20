@@ -7,24 +7,25 @@ from keras.models import *
 from keras.layers import Conv2D, Input, BatchNormalization, Flatten, Dense, Dropout, Softmax
 from keras.optimizers import Adam
 
-class NonagaNet():
-    def __init__(self, game, args):
+
+class NonagaNet:
+    def __init__(self, game_manager, args):
         # game params
-        self.board_width, self.board_height = game.get_board_size()
-        self.action_size = game.get_action_size()
+        self.board_width, self.board_height = game_manager.get_board_size(game_manager.reset_board())
         self.args = args
 
+        # ToDo: Preprocess input to channels last
         # Neural Net
-        self.input_boards = Input(shape=(self.board_width, self.board_height, 3)) # batch_size  x board_x x board_y x 3
-        x = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same",)(self.input_boards)
+        self.input_boards = Input(shape=(5, self.board_width, self.board_height))  # batch_size  x board_x x board_y x 3
+        x = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same", data_format="channels_first")(self.input_boards)
         x = BatchNormalization()(x)
-        x = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same")(x)
+        x = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same", data_format="channels_first")(x)
         x = BatchNormalization()(x)
-        x = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same")(x)
+        x = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same", data_format="channels_first")(x)
         x = BatchNormalization()(x)
-        x = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same")(x)
+        x = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same", data_format="channels_first")(x)
         x = BatchNormalization()(x)
-        x = Conv2D(args.num_channels/2, kernel_size=1)(x)
+        x = Conv2D(args.num_channels/2, kernel_size=1, data_format="channels_first")(x)
         x = Flatten()(x)
 
         # Policy Head 1 - piece Movement
@@ -44,4 +45,7 @@ class NonagaNet():
         self.pi1_model.compile(loss=['categorical_crossentropy', 'mean_squared_error'], optimizer=Adam(args.lr))
         self.pi2_model = Model(inputs=self.input_boards, outputs=[self.pi2, self.v])
         self.pi2_model.compile(loss=['categorical_crossentropy', 'mean_squared_error'], optimizer=Adam(args.lr))
+        self.model = Model(inputs=self.input_boards, outputs=[self.pi1, self.pi2, self.v])
+
+        self.model.summary()
 

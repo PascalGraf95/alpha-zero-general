@@ -4,8 +4,9 @@ Alpha-zero general implementation of connect4.
 Neural network architecture was copy-pasted from the game of Othello, so could likely be improved.
 
 To train a model for Connect4, update the imports in ```main.py``` to:
+
 ```python
-from Coach import Coach
+from Trainer import Trainer
 from connect4.Connect4Game import Connect4Game
 from connect4.tensorflow.NNet import NNetWrapper as nn
 from utils import dotdict
