@@ -52,6 +52,8 @@ class Trainer:
         episode_step = 0
 
         while True:
+            # print("\r Episode Steps: {}, MCTS States Visited: {}".format(episode_step,
+            # len(self.mcts.state_visits)), end="")
             episode_step += 1
             canonical_board = self.game_manager.get_canonical_form(game, self.current_player)
 

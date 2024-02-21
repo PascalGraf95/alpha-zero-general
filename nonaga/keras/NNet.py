@@ -71,7 +71,7 @@ class NNetWrapper:
         """
         # preparing input
         board = np.expand_dims(board, axis=0)
-        # board = np.transpose(board, (0, 2, 3, 1))
+        board = np.transpose(board, (0, 2, 3, 1))
         # run
         if game.phase == 0:
             pi, v = self.network.pi1_model.predict(board, verbose=False)

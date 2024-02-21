@@ -252,13 +252,15 @@ class Game:
             if self.phase == 0:
                 input_move = np.zeros((self.width*self.height*6))
                 input_move[move] = 1
-                reshaped_input = np.reshape(input_move, (6, self.width, self.height))
+                reshaped_input = np.reshape(input_move, (self.height, self.width, 6))
+                move_array = np.nonzero(reshaped_input)
+                move = [move_array[0][0], move_array[1][0], move_array[2][0]]
             else:
                 input_move = np.zeros((self.width*self.height))
                 input_move[move] = 1
                 reshaped_input = np.reshape(input_move, (self.height, self.width))
-            move_array = np.nonzero(reshaped_input)
-            move = [move_array[2][0], move_array[0][0], move_array[1][0]]
+                move_array = np.nonzero(reshaped_input)
+                move = [move_array[0][0], move_array[1][0]]
 
         if self.phase == 0:
             # region - Piece Moves -

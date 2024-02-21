@@ -99,7 +99,7 @@ class MCTS:
             # Leaf Node
             self.policy_s[s], value = self.player_network.predict(game, canonical_board)
             valid_moves = self.game_manager.get_valid_moves(game, player)
-            valid_moves_reshaped = np.reshape(valid_moves, (6, 15, 12))
+
             # Mask all moves that are not valid in the current state
             self.policy_s[s] = self.policy_s[s] * valid_moves
 
@@ -141,7 +141,7 @@ class MCTS:
 
         a = best_action
         next_game, next_player = self.game_manager.get_next_state(game, player, a)
-        next_state = self.game_manager.get_canonical_form(next_game, next_player)
+        # next_state = self.game_manager.get_canonical_form(next_game, next_player)
 
         # From the next state the function calls itself recursively until the leaf node is found
         v = self.search(next_game, next_player)

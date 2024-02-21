@@ -20,7 +20,7 @@ class NonagaGameManager:
 
     def get_next_state(self, game, player, action):
         new_game = Game()
-        new_game.pieces = np.copy(game.board)
+        new_game.board = np.copy(game.board)
         new_game.phase = game.phase
         new_game.execute_move(action, player)
         next_player = (-1*player if new_game.phase == 0 else player)
@@ -29,9 +29,9 @@ class NonagaGameManager:
     def get_valid_moves(self, game, player):
         valid_moves = game.get_legal_moves(player)
         if game.phase == 0:
-            all_moves_masked = np.zeros((6, game.height, game.width))
+            all_moves_masked = np.zeros((game.height, game.width, 6))
             for m in valid_moves:
-                all_moves_masked[m[2], m[0], m[1]] = 1
+                all_moves_masked[m[0], m[1], m[2]] = 1
         else:
             all_moves_masked = np.zeros((game.height, game.width))
             for m in valid_moves:
