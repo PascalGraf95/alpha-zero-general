@@ -41,14 +41,15 @@ class MCTS:
 
         # Perform x MCTS simulations from the current state
         for i in range(self.args.num_mcts_sims):
-            self.search(game, player)
+            self.search(game, player, player)
 
         # Get the count of how often which action has been performed for each available action in the current state.
         s = self.game_manager.get_string_representation(self.game_manager.get_canonical_form(game, player))
         action_counts = [self.state_action_visits[(s, a)] if (s, a) in self.state_action_visits else 0 for a in
                          range(self.game_manager.get_action_size(game))]
 
-        # Act deterministically towards later stages of the tree search
+        # Act deterministically towards later stages of the tree search. Take one of the actions that have been chosen
+        # the most.
         if random_policy_actions == 0:
             best_actions = np.array(np.argwhere(action_counts == np.max(action_counts))).flatten()
             best_action = np.random.choice(best_actions)
@@ -63,7 +64,7 @@ class MCTS:
         action_probabilities = [x / action_counts_sum for x in action_counts]
         return action_probabilities
 
-    def search(self, game, player):
+    def search(self, game, player, original_player):
         """
         This function performs one iteration of MCTS. It is recursively called
         until a leaf node is found. The action chosen at each node is one that
@@ -89,8 +90,14 @@ class MCTS:
         # region Terminal State Check
         if s not in self.game_ended_states:
             self.game_ended_states[s] = self.game_manager.has_game_ended(game, player)
+
+        # If the game is in a terminal state we end the search and return the value with respect to the current player.
         if self.game_ended_states[s] != 0:
-            return self.game_ended_states[s]
+            # self.game_manager.display(game)
+            # print("This end state has occurred in MCTS. Its value is: {} for player {} "
+            #       "(original player {})".format(self.game_ended_states[s], player, original_player))
+            # This only matters if we are further down the search tree for the ucb calculation.
+            return self.game_ended_states[s] if player == original_player else -self.game_ended_states[s]
         # endregion
 
         # region Unvisited State
@@ -116,7 +123,7 @@ class MCTS:
 
             self.valid_moves_in_states[s] = valid_moves
             self.state_visits[s] = 0
-            return -value
+            return value if original_player == player else -value
         # endregion
 
         # region Already Visited State
@@ -131,7 +138,7 @@ class MCTS:
                 if (s, a) in self.action_values:
                     # UCB = action value + c * policy_probability * sqrt(state_visits) / (1+ state_action_visits)
                     ucb = self.action_values[(s, a)] + self.args.cpuct * self.policy_s[s][a] \
-                          * math.sqrt(self.state_visits[s])/ (1 + self.state_action_visits[(s, a)])
+                          * math.sqrt(self.state_visits[s]) / (1 + self.state_action_visits[(s, a)])
                 else:
                     ucb = self.args.cpuct * self.policy_s[s][a] * math.sqrt(self.state_visits[s] + EPS)
 
@@ -139,24 +146,23 @@ class MCTS:
                     current_best = ucb
                     best_action = a
 
-        a = best_action
-        next_game, next_player = self.game_manager.get_next_state(game, player, a)
-        # next_state = self.game_manager.get_canonical_form(next_game, next_player)
+        next_game, next_player = self.game_manager.get_next_state(game, player, best_action)
 
         # From the next state the function calls itself recursively until the leaf node is found
-        v = self.search(next_game, next_player)
+        value = self.search(next_game, next_player, original_player)
 
         # Update the action values for the taken action
-        if (s, a) in self.action_values:
-            self.action_values[(s, a)] = (self.state_action_visits[(s, a)] *
-                                          self.action_values[(s, a)] + v) / (self.state_action_visits[(s, a)] + 1)
-            self.state_action_visits[(s, a)] += 1
+        if (s, best_action) in self.action_values:
+            self.action_values[(s, best_action)] = (self.state_action_visits[(s, best_action)] *
+                                                    self.action_values[(s, best_action)] + value) / \
+                                                   (self.state_action_visits[(s, best_action)] + 1)
+            self.state_action_visits[(s, best_action)] += 1
 
         else:
-            self.action_values[(s, a)] = v
-            self.state_action_visits[(s, a)] = 1
+            self.action_values[(s, best_action)] = value
+            self.state_action_visits[(s, best_action)] = 1
 
         self.state_visits[s] += 1
         # endregion
-        return -v
+        return value
 

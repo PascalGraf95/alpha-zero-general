@@ -38,6 +38,22 @@ class NonagaGameManager:
                 all_moves_masked[m[0], m[1]] = 1
         return all_moves_masked.flatten()
 
+    def get_symmetries(self, game, player, policy):
+        original_canonical_board = self.get_canonical_form(game, player)
+        board_policy_list = [original_canonical_board, policy]
+
+        # Shift to Right
+        canonical_board = np.copy(original_canonical_board)
+        original_policy = np.copy(policy)
+        while True:
+            if np.any(canonical_board[0, :, -2:] != 0) or np.any(canonical_board[1, :, -2:] != 0) or \
+                    np.any(canonical_board[3, :, -2:] != 0):
+                break
+            canonical_board = np.roll(canonical_board, shift=2, axis=1)
+            board_policy_list.append([canonical_board, policy])
+
+        return board_policy_list
+
     def has_game_ended(self, game, player):
         # return 0 if not ended, 1 if player 1 won, -1 if player 1 lost
         return game.check_for_game_end(player)
@@ -46,9 +62,6 @@ class NonagaGameManager:
         # return state if player==1, else return -state if player==-1
         game.board[1] *= player
         return game.board
-
-    def get_symmetries(self, game, pi):
-        return []
 
     def get_string_representation(self, canonical_board):
         return np.array2string(canonical_board)

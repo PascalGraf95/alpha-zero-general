@@ -11,6 +11,8 @@ from tqdm import tqdm
 from Arena import Arena
 from MCTS import MCTS
 
+import ray
+
 log = logging.getLogger(__name__)
 
 
@@ -51,20 +53,30 @@ class Trainer:
         self.current_player = 1
         episode_step = 0
 
+        # Play the full episode until game has ended
         while True:
-            # print("\r Episode Steps: {}, MCTS States Visited: {}".format(episode_step,
-            # len(self.mcts.state_visits)), end="")
+            if episode_step > 320:
+                return []
+            if episode_step % 80 == 0 and episode_step != 0:
+                self.game_manager.display(game)
+                print("This is the current game state.")
+
             episode_step += 1
             canonical_board = self.game_manager.get_canonical_form(game, self.current_player)
 
             # Later in the tree search action should be more deterministic to end the episode
             random_policy_actions = int(episode_step < self.args.random_policy_threshold)
 
+            # Get the current policy according to the neural network and MCTS. The neural network suggests
+            # the initial policy and the mcts refines it with rollouts. The number of new states to be explored
+            # is limited by num_mcts_sims
             policy = self.mcts.get_action_probabilities(game, self.current_player,
                                                         random_policy_actions=random_policy_actions)
 
             # region Symmetries
-            # sym = self.game.get_symmetries(canonical_board, pi)
+            # ToDo: SYMMETRIEEEEEES
+            # Add all symmetrical boards to the training samples as they are identical in policy
+            # sym = self.game.get_symmetries(game, player, policy)
             # for b, p in sym:
             #    training_samples.append([b, self.current_player, p, None])
             # endregion
@@ -80,6 +92,10 @@ class Trainer:
 
             # If there is a winner the game has end. Return the training samples without the current player property.
             if winner != 0:
+                self.game_manager.display(game)
+                print("This is how the game really ended. "
+                      "Its value is: {} for player {}".format(winner, self.current_player))
+
                 return [(sample[0], sample[2], sample[3], winner * (-1) ** (sample[1] != self.current_player))
                         for sample in training_samples]
 
@@ -139,13 +155,13 @@ class Trainer:
 
             # region Arena Playoff
             log.info('PITTING AGAINST PREVIOUS VERSION')
-            arena = Arena(lambda x: np.argmax(competitor_mcts.get_action_probabilities(x, -1, random_policy_actions=0)),
-                          lambda x: np.argmax(player_mcts.get_action_probabilities(x, 1, random_policy_actions=0)),
-                          self.game_manager)
-            pwins, nwins, draws = arena.play_games(self.args.arena_matches)
+            arena = Arena(lambda x, y: np.argmax(player_mcts.get_action_probabilities(x, y, random_policy_actions=0)),
+                          lambda x, y: np.argmax(competitor_mcts.get_action_probabilities(x, y, random_policy_actions=0)),
+                          game_manager=self.game_manager)
+            new_wins, old_wins, draws = arena.play_games(self.args.arena_matches)
 
-            log.info('NEW/PREV WINS : %d / %d ; DRAWS : %d' % (nwins, pwins, draws))
-            if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.update_threshold:
+            log.info('NEW/PREV WINS : %d / %d ; DRAWS : %d' % (new_wins, old_wins, draws))
+            if old_wins + new_wins == 0 or float(new_wins) / (old_wins + new_wins) < self.args.update_threshold:
                 log.info('REJECTING NEW MODEL')
                 self.player_network.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
             else:

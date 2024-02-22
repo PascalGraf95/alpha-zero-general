@@ -31,22 +31,41 @@ class NNetWrapper:
         self.board_x, self.board_y = game_manager.get_board_size(game_manager.reset_board())
 
     def train(self, examples):
+        print("Training")
         """
         examples: list of examples, each example is of form (board, pi, v)
         """
-        input_boards, target_pis, target_values, phases = list(zip(*examples))
+        input_boards, phases, target_pis, target_values = list(zip(*examples))
 
         phases = np.asarray(phases)
-        phase_zero_indices = np.where(phases == 0)[0]
-        phase_one_two_indices = np.where(phases == 1 or phases == 2)[0]
+        phase_zero_indices = np.where(phases == 0)[0].astype(int)
+        phase_one_two_indices = np.where((phases == 1) | (phases == 2))[0].astype(int)
 
-        input_boards_phase_zero = np.asarray(input_boards[phase_zero_indices])
-        target_pis_phase_zero = np.asarray(target_pis[phase_zero_indices])
-        target_vs_phase_zero = np.asarray(target_values[phase_zero_indices])
+        input_boards_phase_zero = []
+        target_pis_phase_zero = []
+        target_vs_phase_zero = []
 
-        input_boards_phase_one_two = np.asarray(input_boards[phase_one_two_indices])
-        target_pis_phase_one_two = np.asarray(target_pis[phase_one_two_indices])
-        target_vs_phase_one_two = np.asarray(target_values[phase_one_two_indices])
+        for idx in phase_zero_indices:
+            input_boards_phase_zero.append(input_boards[idx])
+            target_pis_phase_zero.append(target_pis[idx])
+            target_vs_phase_zero.append(target_values[idx])
+
+        input_boards_phase_zero = np.transpose(np.asarray(input_boards_phase_zero), (0, 2, 3, 1))
+        target_pis_phase_zero = np.asarray(target_pis_phase_zero)
+        target_vs_phase_zero = np.expand_dims(np.asarray(target_vs_phase_zero), axis=1)
+
+        input_boards_phase_one_two = []
+        target_pis_phase_one_two = []
+        target_vs_phase_one_two = []
+
+        for idx in phase_one_two_indices:
+            input_boards_phase_one_two.append(input_boards[idx])
+            target_pis_phase_one_two.append(target_pis[idx])
+            target_vs_phase_one_two.append(target_values[idx])
+
+        input_boards_phase_one_two = np.transpose(np.asarray(input_boards_phase_one_two), (0, 2, 3, 1))
+        target_pis_phase_one_two = np.asarray(target_pis_phase_one_two)
+        target_vs_phase_one_two = np.expand_dims(np.asarray(target_vs_phase_one_two), axis=1)
 
         for e in range(args.epochs):
             """

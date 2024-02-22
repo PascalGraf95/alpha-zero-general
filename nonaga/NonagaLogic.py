@@ -44,12 +44,6 @@ class Game:
         # One turn consists of three phases (0-2)
         self.phase = 0
 
-    """
-    # add [][] indexer syntax to the Board
-    def __getitem__(self, index): 
-        return self.pieces[index]
-    """
-
     def get_action_size(self):
         if self.phase == 0:
             return self.width * self.height * 6
@@ -335,7 +329,8 @@ class Game:
                     return 1
                 if self.same_player_top_left(-player, x, y) and self.same_player_right(-player, x, y) and self.player_on_current_field(-player, x, y):
                     return -1
-
+        if len(self.get_legal_moves(player)) == 0:
+            return -1
         return 0
 
     def player_on_current_field(self, player, x, y):
