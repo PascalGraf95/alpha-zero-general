@@ -304,6 +304,18 @@ class Game:
                 if self.same_player_top_left(-player, x, y) and self.same_player_top_right(-player, x, y) and self.player_on_current_field(-player, x, y):
                     return -1
 
+                # Triangle Left
+                if self.same_player_top_right(player, x, y) and self.same_player_bottom_right(player, x, y) and self.player_on_current_field(player, x, y):
+                    return 1
+                if self.same_player_top_right(-player, x, y) and self.same_player_bottom_right(-player, x, y) and self.player_on_current_field(-player, x, y):
+                    return -1
+
+                # Triangle Right
+                if self.same_player_top_left(player, x, y) and self.same_player_bottom_left(player, x, y) and self.player_on_current_field(player, x, y):
+                    return 1
+                if self.same_player_top_left(-player, x, y) and self.same_player_bottom_left(-player, x, y) and self.player_on_current_field(-player, x, y):
+                    return -1
+
                 # /-
                 if self.same_player_bottom_left(player, x, y) and self.same_player_right(player, x, y) and self.player_on_current_field(player, x, y):
                     return 1
