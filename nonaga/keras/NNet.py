@@ -36,7 +36,6 @@ class NNetWrapper:
         examples: list of examples, each example is of form (board, pi, v)
         """
         input_boards, phases, target_pis, target_values = list(zip(*examples))
-
         phases = np.asarray(phases)
         phase_zero_indices = np.where(phases == 0)[0].astype(int)
         phase_one_two_indices = np.where((phases == 1) | (phases == 2))[0].astype(int)

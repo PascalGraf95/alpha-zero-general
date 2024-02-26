@@ -74,11 +74,11 @@ class Trainer:
                                                         random_policy_actions=random_policy_actions)
 
             # region Symmetries
-            # ToDo: SYMMETRIEEEEEES
             # Add all symmetrical boards to the training samples as they are identical in policy
-            # sym = self.game.get_symmetries(game, player, policy)
-            # for b, p in sym:
-            #    training_samples.append([b, self.current_player, p, None])
+            # symmetries = self.game_manager.get_symmetries(game, self.current_player, np.copy(policy))
+            # for b, p in symmetries:
+                  # self.game_manager.display_by_board(b)
+            #     training_samples.append([b, self.current_player, game.phase, p, None])
             # endregion
 
             # Training Sample: Board Configuration, Current Player, Policy, Phase, Value (which is unknown yet)
@@ -166,25 +166,25 @@ class Trainer:
                 self.player_network.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
             else:
                 log.info('ACCEPTING NEW MODEL')
-                self.player_network.save_checkpoint(folder=self.args.checkpoint, filename=self.get_checkpoint_file(i))
+                self.player_network.save_checkpoint(folder=self.args.checkpoint, filename=self.get_checkpoint_file("", i))
                 self.player_network.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
             # endregion
 
     @staticmethod
-    def get_checkpoint_file(iteration):
-        return 'checkpoint_' + str(iteration) + '.pth.tar'
+    def get_checkpoint_file(name, iteration):
+        return 'checkpoint_' + name + str(iteration) + '.pth.tar'
 
     def save_training_samples(self, iteration):
         folder = self.args.checkpoint
         if not os.path.exists(folder):
             os.makedirs(folder)
-        filename = os.path.join(folder, self.get_checkpoint_file(iteration) + ".examples")
+        filename = os.path.join(folder, self.get_checkpoint_file("samples_", iteration))
         with open(filename, "wb+") as f:
             Pickler(f).dump(self.training_samples_history)
 
     def load_training_samples(self):
         model_file = os.path.join(self.args.load_folder_file[0], self.args.load_folder_file[1])
-        sample_file = model_file + ".examples"
+        sample_file = os.path.join(self.args.load_folder_file[0], self.args.load_folder_file[2])
         if not os.path.isfile(sample_file):
             log.warning(f'File "{sample_file}" with trainExamples not found!')
             r = input("Continue? [y|n]")

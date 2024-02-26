@@ -39,20 +39,100 @@ class NonagaGameManager:
         return all_moves_masked.flatten()
 
     def get_symmetries(self, game, player, policy):
-        original_canonical_board = self.get_canonical_form(game, player)
-        board_policy_list = [original_canonical_board, policy]
+        original_canonical_board = np.copy(self.get_canonical_form(game, player))
+        board_policy_list = [[original_canonical_board, policy]]
 
-        # Shift to Right
-        canonical_board = np.copy(original_canonical_board)
-        original_policy = np.copy(policy)
-        while True:
-            if np.any(canonical_board[0, :, -2:] != 0) or np.any(canonical_board[1, :, -2:] != 0) or \
-                    np.any(canonical_board[3, :, -2:] != 0):
-                break
-            canonical_board = np.roll(canonical_board, shift=2, axis=1)
-            board_policy_list.append([canonical_board, policy])
+        # Only Top Bottom
+        for new_board_t, new_policy_t in self.shift_generator(original_canonical_board, policy, game,
+                                                              "top", return_original=False):
+            board_policy_list.append([new_board_t, new_policy_t])
 
+        for new_board_b, new_policy_b in self.shift_generator(original_canonical_board, policy, game,
+                                                              "bottom", return_original=False):
+            board_policy_list.append([new_board_b, new_policy_b])
+
+        # Left Right + Top Bottom + Flip
+        for new_board_r, new_policy_r in self.shift_generator(original_canonical_board, policy, game,
+                                                              "right", return_original=False):
+            for new_board_t, new_policy_t in self.shift_generator(new_board_r, new_policy_r, game,
+                                                                  "top", return_original=True):
+                board_policy_list.append([new_board_t, new_policy_t])
+
+            for new_board_b, new_policy_b in self.shift_generator(new_board_r, new_policy_r, game,
+                                                                  "bottom", return_original=False):
+                board_policy_list.append([new_board_b, new_policy_b])
+
+        for new_board_l, new_policy_l in self.shift_generator(original_canonical_board, policy, game,
+                                                              "left", return_original=False):
+            for new_board_t, new_policy_t in self.shift_generator(new_board_l, new_policy_l, game,
+                                                                  "top", return_original=True):
+                board_policy_list.append([new_board_t, new_policy_t])
+
+            for new_board_b, new_policy_b in self.shift_generator(new_board_l, new_policy_l, game,
+                                                                  "bottom", return_original=False):
+                board_policy_list.append([new_board_b, new_policy_b])
         return board_policy_list
+
+    def flip_generator(self, original_canonical_board, original_policy, game, direction="horizontal",
+                       return_original=False):
+        canonical_board = np.copy(original_canonical_board)
+        if game.phase == 0:
+            board_policy_reshaped = np.reshape(np.copy(np.copy(original_policy)), (game.height, game.width, 6))
+        else:
+            board_policy_reshaped = np.reshape(np.asarray(np.copy(original_policy)), (game.height, game.width))
+
+        if return_original:
+            yield canonical_board, board_policy_reshaped.flatten().tolist()
+
+        if direction == "horizontal":
+            canonical_board = np.flip(canonical_board, axis=1)
+            board_policy_reshaped = np.flip(board_policy_reshaped, axis=0)
+            # self.display_by_board(canonical_board)
+            yield canonical_board, board_policy_reshaped.flatten().tolist()
+
+        elif direction == "vertical":
+            canonical_board = np.flip(canonical_board, axis=2)
+            board_policy_reshaped = np.flip(board_policy_reshaped, axis=1)
+            # self.display_by_board(canonical_board)
+            yield canonical_board, board_policy_reshaped.flatten().tolist()
+
+    def shift_generator(self, original_canonical_board, original_policy, game, direction="right", return_original=False):
+        canonical_board = np.copy(original_canonical_board)
+        if game.phase == 0:
+            board_policy_reshaped = np.reshape(np.copy(np.copy(original_policy)), (game.height, game.width, 6))
+        else:
+            board_policy_reshaped = np.reshape(np.asarray(np.copy(original_policy)), (game.height, game.width))
+
+        if return_original:
+            yield canonical_board, board_policy_reshaped.flatten().tolist()
+
+        if direction == 'right':
+            while not (np.any(canonical_board[0, :, -2:] != 0) or np.any(canonical_board[1, :, -2:] != 0) or
+                       np.any(canonical_board[3, :, -2:] != 0)):
+                canonical_board = np.roll(canonical_board, shift=2, axis=2)
+                board_policy_reshaped = np.roll(board_policy_reshaped, shift=2, axis=1)
+                yield canonical_board, board_policy_reshaped.flatten().tolist()
+
+        elif direction == 'left':
+            while not (np.any(canonical_board[0, :, :2] != 0) or np.any(canonical_board[1, :, :2] != 0) or
+                       np.any(canonical_board[3, :, :2] != 0)):
+                canonical_board = np.roll(canonical_board, shift=-2, axis=2)
+                board_policy_reshaped = np.roll(board_policy_reshaped, shift=-2, axis=1)
+                yield canonical_board, board_policy_reshaped.flatten().tolist()
+
+        elif direction == 'top':
+            while not (np.any(canonical_board[0, :1, :] != 0) or np.any(canonical_board[1, :1, :] != 0) or
+                       np.any(canonical_board[3, :1, :] != 0)):
+                canonical_board = np.roll(canonical_board, shift=-1, axis=1)
+                board_policy_reshaped = np.roll(board_policy_reshaped, shift=-1, axis=0)
+                yield canonical_board, board_policy_reshaped.flatten().tolist()
+
+        elif direction == 'bottom':
+            while not (np.any(canonical_board[0, -1:, :] != 0) or np.any(canonical_board[1, -1:, :] != 0) or
+                       np.any(canonical_board[3, -1:, :] != 0)):
+                canonical_board = np.roll(canonical_board, shift=1, axis=1)
+                board_policy_reshaped = np.roll(board_policy_reshaped, shift=1, axis=0)
+                yield canonical_board, board_policy_reshaped.flatten().tolist()
 
     def has_game_ended(self, game, player):
         # return 0 if not ended, 1 if player 1 won, -1 if player 1 lost
@@ -84,6 +164,28 @@ class NonagaGameManager:
                 letter = " " if game.board[0][y][x] == 0 else "O"
                 if game.board[1][y][x] != 0:
                     letter = "r" if game.board[1][y][x] == 1 else "b"
+                print(letter, end="  ")
+            print("|")
+        print("---------------------------------------------------")
+
+    def display_by_board(self, canonical_board):
+        width = 15
+        height = 12
+        print("    ", end="")
+
+        # For each column print the index
+        for x in range(width):
+            print("{:02d}".format(x), end=" ")
+
+        print("")
+        print("---------------------------------------------------")
+        for y in range(height):
+            # For each row print the index
+            print("{:02d} |".format(y), end="")
+            for x in range(width):
+                letter = " " if canonical_board[0][y][x] == 0 else "O"
+                if canonical_board[1][y][x] != 0:
+                    letter = "r" if canonical_board[1][y][x] == 1 else "b"
                 print(letter, end="  ")
             print("|")
         print("---------------------------------------------------")

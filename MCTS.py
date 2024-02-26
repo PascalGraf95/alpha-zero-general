@@ -2,6 +2,8 @@ import logging
 import math
 
 import numpy as np
+import ray
+
 from nonaga.NonagaGameManager import NonagaGameManager as GameManager
 from nonaga.keras.NNet import NNetWrapper as Network
 
@@ -26,7 +28,7 @@ class MCTS:
         self.policy_s = {}  # stores initial policy (returned by neural net)
 
         self.game_ended_states = {}  # stores game.getGameEnded ended for board s
-        self.valid_moves_in_states = {}  # stores game.getValidMoves for board s
+        self.valid_moves_in_states = {}  # stores game.getValidMoves for board
 
     def get_action_probabilities(self, game, player, random_policy_actions=1):
         """
@@ -38,10 +40,12 @@ class MCTS:
             action_probabilities: a policy vector where the probability of the ith action is
                                   proportional to state_action_visits[(s,a)]**(1./temp)
         """
-
         # Perform x MCTS simulations from the current state
         for i in range(self.args.num_mcts_sims):
             self.search(game, player, player)
+
+        # results = [self.search.remote(game, player, player) for i in range(self.args.num_mcts_sims)]
+        # ray.get(results)
 
         # Get the count of how often which action has been performed for each available action in the current state.
         s = self.game_manager.get_string_representation(self.game_manager.get_canonical_form(game, player))
@@ -65,25 +69,6 @@ class MCTS:
         return action_probabilities
 
     def search(self, game, player, original_player):
-        """
-        This function performs one iteration of MCTS. It is recursively called
-        until a leaf node is found. The action chosen at each node is one that
-        has the maximum upper confidence bound as in the paper.
-
-        Once a leaf node is found, the neural network is called to return an
-        initial policy p and a value v for the state. This value is propagated
-        up the search path. In case the leaf node is a terminal state, the
-        outcome is propagated up the search path. The values of state_visits, state_action_visits, action_values are
-        updated.
-
-        NOTE: the return values are the negative of the value of the current
-        state. This is done since v is in [-1,1] and if v is the value of a
-        state for the current player, then its value is -v for the other player.
-
-        Returns:
-            v: the negative of the value of the current canonicalBoard
-        """
-
         canonical_board = self.game_manager.get_canonical_form(game, player)
         s = self.game_manager.get_string_representation(canonical_board)
 

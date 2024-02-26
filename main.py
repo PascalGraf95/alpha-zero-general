@@ -23,8 +23,8 @@ args = dotdict({
     'cpuct': 1,
 
     'checkpoint': './nonaga/models',
-    'load_model': False,
-    'load_folder_file': ('/dev/models/8x100x50', 'best.pth.tar'),
+    'load_model': True,
+    'load_folder_file': ('./nonaga/models/', 'best.h5', 'checkpoint_1.examples.pth.tar'),
     'max_history_length': 20,
 
 })

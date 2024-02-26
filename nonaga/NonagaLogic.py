@@ -244,17 +244,9 @@ class Game:
         """
         if form == 0:
             if self.phase == 0:
-                input_move = np.zeros((self.width*self.height*6))
-                input_move[move] = 1
-                reshaped_input = np.reshape(input_move, (self.height, self.width, 6))
-                move_array = np.nonzero(reshaped_input)
-                move = [move_array[0][0], move_array[1][0], move_array[2][0]]
+                move = list(np.unravel_index(move, (self.height, self.width, 6)))
             else:
-                input_move = np.zeros((self.width*self.height))
-                input_move[move] = 1
-                reshaped_input = np.reshape(input_move, (self.height, self.width))
-                move_array = np.nonzero(reshaped_input)
-                move = [move_array[0][0], move_array[1][0]]
+                move = list(np.unravel_index(move, (self.height, self.width)))
 
         if self.phase == 0:
             # region - Piece Moves -
@@ -300,10 +292,16 @@ class Game:
                 if self.same_player_left(-player, x, y) and self.same_player_right(-player, x, y) and self.player_on_current_field(-player, x, y):
                     return -1
 
-                # Triangle
+                # Triangle Top
                 if self.same_player_bottom_left(player, x, y) and self.same_player_bottom_right(player, x, y) and self.player_on_current_field(player, x, y):
                     return 1
                 if self.same_player_bottom_left(-player, x, y) and self.same_player_bottom_right(-player, x, y) and self.player_on_current_field(-player, x, y):
+                    return -1
+
+                # Triangle Bottom
+                if self.same_player_top_left(player, x, y) and self.same_player_top_right(player, x, y) and self.player_on_current_field(player, x, y):
+                    return 1
+                if self.same_player_top_left(-player, x, y) and self.same_player_top_right(-player, x, y) and self.player_on_current_field(-player, x, y):
                     return -1
 
                 # /-
@@ -328,6 +326,18 @@ class Game:
                 if self.same_player_top_left(player, x, y) and self.same_player_right(player, x, y) and self.player_on_current_field(player, x, y):
                     return 1
                 if self.same_player_top_left(-player, x, y) and self.same_player_right(-player, x, y) and self.player_on_current_field(-player, x, y):
+                    return -1
+
+                # \
+                if self.same_player_top_left(player, x, y) and self.same_player_bottom_right(player, x, y) and self.player_on_current_field(player, x, y):
+                    return 1
+                if self.same_player_top_left(-player, x, y) and self.same_player_bottom_right(-player, x, y) and self.player_on_current_field(-player, x, y):
+                    return -1
+
+                # /
+                if self.same_player_top_right(player, x, y) and self.same_player_bottom_left(player, x, y) and self.player_on_current_field(player, x, y):
+                    return 1
+                if self.same_player_top_right(-player, x, y) and self.same_player_bottom_left(-player, x, y) and self.player_on_current_field(-player, x, y):
                     return -1
         if len(self.get_legal_moves(player)) == 0:
             return -1
