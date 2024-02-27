@@ -140,8 +140,9 @@ class NonagaGameManager:
 
     def get_canonical_form(self, game, player):
         # return state if player==1, else return -state if player==-1
-        game.board[1] *= player
-        return game.board
+        canonical_board = np.copy(game.board)
+        canonical_board[1] *= player
+        return canonical_board
 
     def get_string_representation(self, canonical_board):
         return np.array2string(canonical_board)

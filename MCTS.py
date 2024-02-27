@@ -2,7 +2,7 @@ import logging
 import math
 
 import numpy as np
-import ray
+# import ray
 
 from nonaga.NonagaGameManager import NonagaGameManager as GameManager
 from nonaga.keras.NNet import NNetWrapper as Network
@@ -89,7 +89,7 @@ class MCTS:
         # Check if policy and value have not been calculated already
         if s not in self.policy_s:
             # Leaf Node
-            self.policy_s[s], value = self.player_network.predict(game, canonical_board)
+            self.policy_s[s], value = self.player_network.predict(game, canonical_board, dummy_values=original_player)
             valid_moves = self.game_manager.get_valid_moves(game, player)
 
             # Mask all moves that are not valid in the current state
@@ -149,5 +149,9 @@ class MCTS:
 
         self.state_visits[s] += 1
         # endregion
+        if original_player != value:
+            self.game_manager.display(next_game)
+            print("This would be the next state. The calculated value is: {:.2f} for "
+                  "the original player {:d} (next player is {:d})".format(value, original_player, next_player))
         return value
 

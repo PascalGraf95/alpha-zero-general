@@ -11,7 +11,7 @@ from tqdm import tqdm
 from Arena import Arena
 from MCTS import MCTS
 
-import ray
+# import ray
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +32,44 @@ class Trainer:
         self.skip_first_step_self_play = False
         self.current_player = 0
 
+    def play_games(self):
+        game = self.game_manager.reset_board()
+        self.current_player = 1
+        episode_step = 0
+
+        # Play the full episode until game has ended
+        while True:
+            if episode_step > 320:
+                return []
+
+            episode_step += 1
+            if game.phase == 0:
+                self.game_manager.display(game)
+                if input("This is the current board (current player: " + str(self.current_player) +
+                         "). Do you want to continue? (Press Enter)") == "n":
+                    continue
+
+            # Get the current policy according to the neural network and MCTS. The neural network suggests
+            # the initial policy and the mcts refines it with rollouts. The number of new states to be explored
+            # is limited by num_mcts_sims
+            policy = self.mcts.get_action_probabilities(game, self.current_player,
+                                                        random_policy_actions=0)
+
+            # Choose the actual action and execute
+            action = np.argmax(policy)
+            game, self.current_player = self.game_manager.get_next_state(game, self.current_player, action)
+
+            winner = self.game_manager.has_game_ended(game, self.current_player)
+
+            # If there is a winner the game has ended. Return the training samples without the current player property.
+            if winner != 0:
+                self.game_manager.display(game)
+                input("This is how the game ended. Winner: " + str(winner) +
+                      ". Do you want to continue? (Press Enter)")
+                game = self.game_manager.reset_board()
+
+
+
     def execute_episode(self):
         """
         This function executes one episode of self-play, starting with player 1.
@@ -50,7 +88,7 @@ class Trainer:
         """
         training_samples = []
         game = self.game_manager.reset_board()
-        self.current_player = 1
+        self.current_player = np.random.choice([-1, 1])
         episode_step = 0
 
         # Play the full episode until game has ended
@@ -93,11 +131,12 @@ class Trainer:
             # If there is a winner the game has end. Return the training samples without the current player property.
             if winner != 0:
                 self.game_manager.display(game)
-                print("This is how the game really ended. "
+                print("This is how the game ended. "
                       "Its value is: {} for player {}".format(winner, self.current_player))
+                actual_samples = [(sample[0], sample[2], sample[3], winner * (-1) ** (sample[1] != self.current_player))
+                                  for sample in training_samples]
 
-                return [(sample[0], sample[2], sample[3], winner * (-1) ** (sample[1] != self.current_player))
-                        for sample in training_samples]
+                return actual_samples
 
     def learn(self):
         """

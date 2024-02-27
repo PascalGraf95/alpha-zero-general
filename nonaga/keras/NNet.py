@@ -31,7 +31,6 @@ class NNetWrapper:
         self.board_x, self.board_y = game_manager.get_board_size(game_manager.reset_board())
 
     def train(self, examples):
-        print("Training")
         """
         examples: list of examples, each example is of form (board, pi, v)
         """
@@ -83,7 +82,7 @@ class NNetWrapper:
                                        y=[target_pis_phase_one_two, target_vs_phase_one_two],
                                        batch_size=args.batch_size, epochs=1, verbose=0)
 
-    def predict(self, game, board):
+    def predict(self, game, board, dummy_values=0):
         """
         board: np array with board
         """
@@ -95,6 +94,8 @@ class NNetWrapper:
             pi, v = self.network.pi1_model.predict(board, verbose=False)
         else:
             pi, v = self.network.pi2_model.predict(board, verbose=False)
+        if dummy_values != 0:
+            return pi[0], dummy_values
         return pi[0], v[0]
 
     def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
@@ -103,10 +104,7 @@ class NNetWrapper:
 
         filepath = os.path.join(folder, filename)
         if not os.path.exists(folder):
-            print("Checkpoint Directory does not exist! Making directory {}".format(folder))
             os.mkdir(folder)
-        else:
-            print("Checkpoint Directory exists! ")
         self.network.model.save_weights(filepath)
 
     def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
