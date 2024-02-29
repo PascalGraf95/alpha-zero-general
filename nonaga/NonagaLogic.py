@@ -243,10 +243,19 @@ class Game:
         """Perform the given move on the board; (1=red,-1=black)
         """
         if form == 0:
-            if self.phase == 0:
-                move = list(np.unravel_index(move, (self.height, self.width, 6)))
-            else:
-                move = list(np.unravel_index(move, (self.height, self.width)))
+            if form == 0:
+                if self.phase == 0:
+                    input_move = np.zeros((self.width * self.height * 6))
+                    input_move[move] = 1
+                    reshaped_input = np.reshape(input_move, (self.height, self.width, 6))
+                    move_array = np.nonzero(reshaped_input)
+                    move = [move_array[0][0], move_array[1][0], move_array[2][0]]
+                else:
+                    input_move = np.zeros((self.width * self.height))
+                    input_move[move] = 1
+                    reshaped_input = np.reshape(input_move, (self.height, self.width))
+                    move_array = np.nonzero(reshaped_input)
+                    move = [move_array[0][0], move_array[1][0]]
 
         if self.phase == 0:
             # region - Piece Moves -

@@ -69,12 +69,7 @@ class MCTS:
         action_probabilities = [x / action_counts_sum for x in action_counts]
         return action_probabilities
 
-    def search(self, game, player, original_player, debug_index=[]):
-        if len(debug_index):
-            print("This search iteration has been called by search indices of the following "
-                  "order: " + str(debug_index))
-            debug_index.append(debug_index[-1] + 1)
-
+    def search(self, game, player, original_player):
         canonical_board = self.game_manager.get_canonical_form(game, player)
         s = self.game_manager.get_string_representation(canonical_board)
 
@@ -85,8 +80,7 @@ class MCTS:
         # If the game is in a terminal state we end the search and return the value with respect to the current player.
         if self.game_ended_states[s] != 0:
             # This only matters if we are further down the search tree for the ucb calculation.
-            value = self.game_ended_states[s] if player == original_player else -self.game_ended_states[s],
-            return value[0], 'terminal_state'
+            return self.game_ended_states[s] if player == original_player else -self.game_ended_states[s]
         # endregion
 
         # region Unvisited State
@@ -113,9 +107,7 @@ class MCTS:
 
             self.valid_moves_in_states[s] = valid_moves
             self.state_visits[s] = 0
-            # print("Reached a new state which is not terminal. Returning the value: {} for the original player: {}".format(value if original_player == player else -value, original_player))
-            returned_value = value[0] if original_player == player else -value[0]
-            return returned_value, 'new_leaf'
+            return value if original_player == player else -value
         # endregion
 
         # region Already Visited State
@@ -138,17 +130,10 @@ class MCTS:
                     current_best = ucb
                     best_action = a
 
-        # print("Exploring a state already visited by getting the next state according to the best action in the current"
-        #       " state.")
         next_game, next_player = self.game_manager.get_next_state(game, player, best_action)
 
-        # print("The next player is: {:d}".format(next_player))
         # From the next state the function calls itself recursively until the leaf node is found
-        value, from_where = self.search(next_game, next_player, player, debug_index=debug_index)
-
-        # print("Returned Value: {:.1f}, From: {}, Current Player: {:d}, Next Player: {:d},  "
-        #       "Original Player: {:d}".format(value, from_where, player, next_player, original_player))
-        # print("Got value {:d} for the original player: {:d} from the next state. The next player is: {:d}".format(value, original_player, next_player))
+        value = self.search(next_game, next_player, player)
 
         # Update the action values for the taken action
         if (s, best_action) in self.action_values:
@@ -164,9 +149,5 @@ class MCTS:
         self.state_visits[s] += 1
         # endregion
 
-        # if value == -1:
-        #     print("Returning value {:d} for the current state and player {:d} which is forwarded by deeper search of "
-        #           "the next states".format(value, original_player))
-        return_value = value if original_player == player else -value  # value
-        return return_value, 'end' #
+        return value if original_player == player else -value
 

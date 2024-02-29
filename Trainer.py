@@ -31,7 +31,6 @@ class Trainer:
         self.training_samples_history = []
         self.skip_first_step_self_play = False
         self.current_player = 0
-        self.warm_up_done = False
 
     def play_games(self):
         game = self.game_manager.reset_board()
@@ -87,7 +86,7 @@ class Trainer:
         """
         training_samples = []
         game = self.game_manager.reset_board()
-        self.current_player = np.random.choice([-1, 1])
+        self.current_player = 1
         episode_step = 0
 
         # Play the full episode until game has ended
