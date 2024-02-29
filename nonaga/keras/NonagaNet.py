@@ -33,7 +33,7 @@ class NonagaNet:
         x = Conv2D(args.num_channels/2, kernel_size=5, activation="relu", use_bias=False)(x)
         x = BatchNormalization()(x)
         x = Flatten()(x)
-        # x = Dense(512, activation="relu")(x)
+        x = Dense(512, activation="relu")(x)
         # x = Dense(256, activation="relu")(x)
 
 
