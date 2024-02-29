@@ -192,19 +192,19 @@ class Game:
         if self.board[0][y][x] == 1:
             return False
 
-        # Cannot place directly over a tile
+        # Cannot place directly under a tile
         if y > 0:
             if self.board[0][y-1][x] == 1:
                 return False
-        # Cannot place directly under a tile
+        # Cannot place directly over a tile
         if y < self.height - 1:
             if self.board[0][y+1][x] == 1:
                 return False
-        # Cannot place directly left a tile
+        # Cannot place directly right of a tile
         if x > 0:
             if self.board[0][y][x-1] == 1:
                 return False
-        # Cannot place directly right of a tile
+        # Cannot place directly left of a tile
         if x < self.width - 1:
             if self.board[0][y][x+1] == 1:
                 return False
@@ -391,6 +391,9 @@ class Game:
 
 if __name__ == '__main__':
     game = Game()
-    legal_moves = game.get_legal_moves(1)
-    print(len(legal_moves))
-    print(legal_moves)
+    for i in range(3):
+        legal_moves = game.get_legal_moves(1)
+        game.execute_move(legal_moves[0], 1, form=1)
+
+    # print(len(legal_moves))
+    # print(legal_moves)

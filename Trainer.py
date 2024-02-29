@@ -31,6 +31,7 @@ class Trainer:
         self.training_samples_history = []
         self.skip_first_step_self_play = False
         self.current_player = 0
+        self.warm_up_done = False
 
     def play_games(self):
         game = self.game_manager.reset_board()
@@ -68,9 +69,7 @@ class Trainer:
                       ". Do you want to continue? (Press Enter)")
                 game = self.game_manager.reset_board()
 
-
-
-    def execute_episode(self):
+    def execute_episode(self, random=False):
         """
         This function executes one episode of self-play, starting with player 1.
         As the game is played, each turn is added as a training example to
@@ -101,7 +100,6 @@ class Trainer:
 
             episode_step += 1
             canonical_board = self.game_manager.get_canonical_form(game, self.current_player)
-
             # Later in the tree search action should be more deterministic to end the episode
             random_policy_actions = int(episode_step < self.args.random_policy_threshold)
 
@@ -133,6 +131,7 @@ class Trainer:
                 self.game_manager.display(game)
                 print("This is how the game ended. "
                       "Its value is: {} for player {}".format(winner, self.current_player))
+                # Board, Phase, Policy, Value
                 actual_samples = [(sample[0], sample[2], sample[3], winner * (-1) ** (sample[1] != self.current_player))
                                   for sample in training_samples]
 

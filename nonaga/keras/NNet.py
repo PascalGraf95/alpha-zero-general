@@ -18,10 +18,10 @@ from ..NonagaGameManager import NonagaGameManager as GameManager
 args = dotdict({
     'lr': 0.001,
     'dropout': 0.3,
-    'epochs': 10,
+    'epochs': 3,
     'batch_size': 64,
     'cuda': True,
-    'num_channels': 128,
+    'num_channels': 64,
 })
 
 
@@ -65,24 +65,23 @@ class NNetWrapper:
         target_pis_phase_one_two = np.asarray(target_pis_phase_one_two)
         target_vs_phase_one_two = np.expand_dims(np.asarray(target_vs_phase_one_two), axis=1)
 
+        print("NUM SAMPLES: {:d}+{:d}".format(input_boards_phase_zero.shape[0], input_boards_phase_one_two.shape[0]))
         for e in range(args.epochs):
             """
             self.network.pi1_model.train_on_batch(x=input_boards_phase_zero,
-                                                  y=[target_pis_phase_zero, target_vs_phase_zero],
-                                                  batch_size=args.batch_size)
+                                                  y=[target_pis_phase_zero, target_vs_phase_zero])
             self.network.pi2_model.train_on_batch(x=input_boards_phase_one_two,
-                                                  y=[target_pis_phase_one_two, target_vs_phase_one_two],
-                                                  batch_size=args.batch_size)
+                                                  y=[target_pis_phase_one_two, target_vs_phase_one_two])
             """
 
             self.network.pi1_model.fit(x=input_boards_phase_zero, y=[target_pis_phase_zero, target_vs_phase_zero],
-                                       batch_size=args.batch_size, epochs=1, verbose=0)
+                                       batch_size=args.batch_size, epochs=1, verbose=1)
 
             self.network.pi2_model.fit(x=input_boards_phase_one_two,
                                        y=[target_pis_phase_one_two, target_vs_phase_one_two],
-                                       batch_size=args.batch_size, epochs=1, verbose=0)
+                                       batch_size=args.batch_size, epochs=1, verbose=1)
 
-    def predict(self, game, board, dummy_values=0):
+    def predict(self, game, board, dummy_values=-10):
         """
         board: np array with board
         """
@@ -94,8 +93,8 @@ class NNetWrapper:
             pi, v = self.network.pi1_model.predict(board, verbose=False)
         else:
             pi, v = self.network.pi2_model.predict(board, verbose=False)
-        if dummy_values != 0:
-            return pi[0], dummy_values
+        if dummy_values != -10:
+            return pi[0], [dummy_values]
         return pi[0], v[0]
 
     def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
@@ -114,7 +113,8 @@ class NNetWrapper:
         # https://github.com/pytorch/examples/blob/master/imagenet/main.py#L98
         filepath = os.path.join(folder, filename)
         if not os.path.exists(filepath):
-            raise("No model in path {}".format(filepath))
+            print("No model in path {}".format(filepath))
+            return
 
         self.network.model.load_weights(filepath)
 
