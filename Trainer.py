@@ -11,6 +11,10 @@ from tqdm import tqdm
 from Arena import Arena
 from MCTS import MCTS
 
+from nonaga.NonagaGameManager import NonagaGameManager as GameManager
+from nonaga.keras import NNet as Network
+from nonaga.NonagaLogic import Game
+
 # import ray
 
 log = logging.getLogger(__name__)
@@ -22,7 +26,7 @@ class Trainer:
     in Game and NeuralNet. args are specified in main.py.
     """
 
-    def __init__(self, game_manager, network, args):
+    def __init__(self, game_manager: GameManager, network: Network, args):
         self.game_manager = game_manager
         self.player_network = network
         self.competitor_network = self.player_network.__class__(self.game_manager)  # the competitor network
@@ -85,8 +89,8 @@ class Trainer:
                            the player eventually won the game, else -1.
         """
         training_samples = []
-        game = self.game_manager.reset_board()
-        self.current_player = 1
+        game = self.game_manager.reset_board(scenario=0)
+        self.current_player = np.random.choice([-1, 1])
         episode_step = 0
 
         # Play the full episode until game has ended

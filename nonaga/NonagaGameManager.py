@@ -8,9 +8,9 @@ import numpy as np
 
 class NonagaGameManager:
 
-    def reset_board(self):
+    def reset_board(self, scenario=0):
         # return initial board (numpy board)
-        return Game()
+        return Game(scenario=scenario)
 
     def get_board_size(self, game: Game):
         return game.height, game.width
@@ -144,8 +144,28 @@ class NonagaGameManager:
         canonical_board[1] *= player
         return canonical_board
 
-    def get_string_representation(self, canonical_board):
-        return np.array2string(canonical_board)
+    def get_string_representation(self, game, canonical_board):
+        tile_string = "tiles:"
+        pieces_string = "_pieces:"
+        last_moved_string = "_lastmoved:"
+        selected_string = "_selected:"
+        phase_string = "_phase:{:01d}".format(int(canonical_board[4][0][0]))
+
+        for y in range(game.height):
+            for x in range(game.width):
+                if canonical_board[0][y][x] == 1:
+                    tile_string += "{:02d}{:02d}_".format(y, x)
+                if canonical_board[1][y][x] != 0:
+                    pieces_string += "{:02d}{:02d}{:02d}_".format(int(canonical_board[1][y][x]), y, x)
+                if canonical_board[2][y][x] == 1:
+                    last_moved_string += "{:02d}{:02d}".format(y, x)
+                if canonical_board[3][y][x] == 1:
+                    selected_string += "{:02d}{:02d}".format(y, x)
+
+        string_representation = tile_string + pieces_string + last_moved_string + selected_string + phase_string
+        # print(len(string_representation))
+        # print(len(np.array2string(canonical_board)))
+        return string_representation
 
     def display(self, game):
         width = 15
@@ -194,8 +214,9 @@ class NonagaGameManager:
 
 if __name__ == '__main__':
     game_manager = NonagaGameManager()
-    game = Game()
+    game = Game(scenario=0)
     game_manager.display(game)
+    game_manager.get_string_representation(game, game_manager.get_canonical_form(game,1))
 
     player = 1
     num_turns = 0
@@ -207,11 +228,12 @@ if __name__ == '__main__':
             print("NO LEGAL MOVE")
             break
 
-        move = legal_moves[np.random.randint(0, len(legal_moves))]
-        game.execute_move(move, player)
+        nonzeros = np.nonzero(legal_moves)[0]
+        move = np.random.choice(nonzeros)
+        game.execute_move(move, player, form=0)
 
         if num_turns % 3 == 0:
-            # nonaga_game.display()
+            game_manager.display(game)
             player *= -1
 
             if game_manager.has_game_ended(game, player) != 0:

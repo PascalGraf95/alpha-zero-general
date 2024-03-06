@@ -18,8 +18,8 @@ from ..NonagaGameManager import NonagaGameManager as GameManager
 args = dotdict({
     'lr': 0.001,
     'dropout': 0.3,
-    'epochs': 10,
-    'batch_size': 128,
+    'epochs': 3,
+    'batch_size': 64,
     'cuda': True,
     'num_channels': 64,
 })
@@ -87,7 +87,7 @@ class NNetWrapper:
             pi, v = self.network.pi2_model.predict(board, verbose=False)
         # if dummy_values != -10:
         #    return pi[0], [dummy_values]
-        return pi[0], v[0]
+        return pi[0], v[0][0]
 
     def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
         # change extension

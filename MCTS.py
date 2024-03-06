@@ -12,11 +12,9 @@ EPS = 1e-8
 log = logging.getLogger(__name__)
 
 
-class MCTS:
-    """
-    This class handles the MCTS tree.
-    """
 
+
+class MCTS:
     def __init__(self, game_manager: GameManager, network: Network, args):
         self.game_manager = game_manager
         self.player_network = network
@@ -31,25 +29,12 @@ class MCTS:
         self.valid_moves_in_states = {}  # stores game.getValidMoves for board
 
     def get_action_probabilities(self, game, player, random_policy_actions=1):
-        """
-        This function performs num_mcts_simulations simulations of MCTS starting from canonical_board and
-        returns the probability for each action in the current state. The probability is defined by how often
-        an action has been taken in the tree search performed at the beginning.
-
-        Returns:
-            action_probabilities: a policy vector where the probability of the ith action is
-                                  proportional to state_action_visits[(s,a)]**(1./temp)
-        """
-        # self.game_manager.display(game)
-        # print("This is the initial situation from which we are exploring with the MCTS")
-
         # Perform x MCTS simulations from the current state
         for i in range(self.args.num_mcts_sims):
-            # print("Starting the {:d}-th search from the initial situation. Current Player: {:d}".format(i+1, player))
             self.search(game, player, player)
 
         # Get the count of how often which action has been performed for each available action in the current state.
-        s = self.game_manager.get_string_representation(self.game_manager.get_canonical_form(game, player))
+        s = self.game_manager.get_string_representation(game, self.game_manager.get_canonical_form(game, player))
         action_counts = [self.state_action_visits[(s, a)] if (s, a) in self.state_action_visits else 0 for a in
                          range(self.game_manager.get_action_size(game))]
 
@@ -69,9 +54,9 @@ class MCTS:
         action_probabilities = [x / action_counts_sum for x in action_counts]
         return action_probabilities
 
-    def search(self, game, player, original_player):
+    def search(self, game, player, original_player, recurrence_depth=0):
         canonical_board = self.game_manager.get_canonical_form(game, player)
-        s = self.game_manager.get_string_representation(canonical_board)
+        s = self.game_manager.get_string_representation(game, canonical_board)
 
         # region Terminal State Check
         if s not in self.game_ended_states:
@@ -79,18 +64,21 @@ class MCTS:
 
         # If the game is in a terminal state we end the search and return the value with respect to the current player.
         if self.game_ended_states[s] != 0:
-            # This only matters if we are further down the search tree for the ucb calculation.
             return self.game_ended_states[s] if player == original_player else -self.game_ended_states[s]
         # endregion
 
         # region Unvisited State
+        if recurrence_depth >= 60:
+            self.policy_s[s], value = self.player_network.predict(game, canonical_board)
+            print("Max Depth Reached")
+            return value
+
         # Check if policy and value have not been calculated already
         if s not in self.policy_s:
             # Leaf Node
             self.policy_s[s], value = self.player_network.predict(game, canonical_board)
-            # print("Predicted value from network for player {} is {}".format(player, value))
             valid_moves = self.game_manager.get_valid_moves(game, player)
-
+            # print("There are {} valid moves for player {}".format(len(np.nonzero(valid_moves)[0]), player))
             # Mask all moves that are not valid in the current state
             self.policy_s[s] = self.policy_s[s] * valid_moves
 
@@ -125,7 +113,6 @@ class MCTS:
                           * math.sqrt(self.state_visits[s]) / (1 + self.state_action_visits[(s, a)])
                 else:
                     ucb = self.args.cpuct * self.policy_s[s][a] * math.sqrt(self.state_visits[s] + EPS)
-
                 if ucb > current_best:
                     current_best = ucb
                     best_action = a
