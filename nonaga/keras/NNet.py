@@ -16,9 +16,9 @@ from .NonagaNet import NonagaNet as nonaganet
 from ..NonagaGameManager import NonagaGameManager as GameManager
 
 args = dotdict({
-    'lr': 0.001,
+    'lr': 0.0005,
     'dropout': 0.3,
-    'epochs': 3,
+    'epochs': 5,
     'batch_size': 64,
     'cuda': True,
     'num_channels': 64,

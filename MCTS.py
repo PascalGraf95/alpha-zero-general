@@ -67,11 +67,11 @@ class MCTS:
             return self.game_ended_states[s] if player == original_player else -self.game_ended_states[s]
         # endregion
 
-        # region Unvisited State
+        # region Unvisited State & Max Depth
         if recurrence_depth >= 60:
             self.policy_s[s], value = self.player_network.predict(game, canonical_board)
-            print("Max Depth Reached")
-            return value
+            print("Max Tree Depth Reached")
+            return value if original_player == player else -value
 
         # Check if policy and value have not been calculated already
         if s not in self.policy_s:
@@ -120,7 +120,7 @@ class MCTS:
         next_game, next_player = self.game_manager.get_next_state(game, player, best_action)
 
         # From the next state the function calls itself recursively until the leaf node is found
-        value = self.search(next_game, next_player, player)
+        value = self.search(next_game, next_player, player, recurrence_depth=recurrence_depth+1)
 
         # Update the action values for the taken action
         if (s, best_action) in self.action_values:

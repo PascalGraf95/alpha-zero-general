@@ -57,7 +57,8 @@ class Trainer:
             # the initial policy and the mcts refines it with rollouts. The number of new states to be explored
             # is limited by num_mcts_sims
             policy = self.mcts.get_action_probabilities(game, self.current_player,
-                                                        random_policy_actions=0)
+                                                        random_policy_actions=1)
+            print(".")
 
             # Choose the actual action and execute
             action = np.argmax(policy)
@@ -105,6 +106,7 @@ class Trainer:
             canonical_board = self.game_manager.get_canonical_form(game, self.current_player)
             # Later in the tree search action should be more deterministic to end the episode
             random_policy_actions = int(episode_step < self.args.random_policy_threshold)
+            random_policy_actions = 1
 
             # Get the current policy according to the neural network and MCTS. The neural network suggests
             # the initial policy and the mcts refines it with rollouts. The number of new states to be explored
@@ -114,14 +116,13 @@ class Trainer:
 
             # region Symmetries
             # Add all symmetrical boards to the training samples as they are identical in policy
-            # symmetries = self.game_manager.get_symmetries(game, self.current_player, np.copy(policy))
-            # for b, p in symmetries:
-                  # self.game_manager.display_by_board(b)
-            #     training_samples.append([b, self.current_player, game.phase, p, None])
+            symmetries = self.game_manager.get_symmetries(game, self.current_player, np.copy(policy))
+            for b, p in symmetries:
+                training_samples.append([b, self.current_player, game.phase, p, None])
             # endregion
 
             # Training Sample: Board Configuration, Current Player, Policy, Phase, Value (which is unknown yet)
-            training_samples.append([canonical_board, self.current_player, game.phase, policy, None])
+            # training_samples.append([canonical_board, self.current_player, game.phase, policy, None])
 
             # Choose the actual action and execute
             action = np.random.choice(len(policy), p=policy)
@@ -228,9 +229,7 @@ class Trainer:
         sample_file = os.path.join(self.args.load_folder_file[0], self.args.load_folder_file[2])
         if not os.path.isfile(sample_file):
             log.warning(f'File "{sample_file}" with trainExamples not found!')
-            r = input("Continue? [y|n]")
-            if r != "y":
-                sys.exit()
+            return
         else:
             log.info("File with trainExamples found. Loading it...")
             with open(sample_file, "rb") as f:

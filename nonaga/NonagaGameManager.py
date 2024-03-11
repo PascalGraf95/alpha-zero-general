@@ -7,7 +7,6 @@ import numpy as np
 
 
 class NonagaGameManager:
-
     def reset_board(self, scenario=0):
         # return initial board (numpy board)
         return Game(scenario=scenario)
@@ -39,38 +38,41 @@ class NonagaGameManager:
         return all_moves_masked.flatten()
 
     def get_symmetries(self, game, player, policy):
-        original_canonical_board = np.copy(self.get_canonical_form(game, player))
+        # Copy Original board and policy
+        original_canonical_board = self.get_canonical_form(game, player)
+        original_canonical_board_copy = np.copy(original_canonical_board)
+        original_policy_copy = np.copy(policy)
+
         board_policy_list = [[original_canonical_board, policy]]
 
-        # Only Top Bottom
-        for new_board_t, new_policy_t in self.shift_generator(original_canonical_board, policy, game,
-                                                              "top", return_original=False):
-            board_policy_list.append([new_board_t, new_policy_t])
+        # Rotate
+        for i in range(5):
+            new_board = np.zeros((5, 12, 15))
+            if game.phase == 0:
+                new_policy = np.reshape(np.zeros(original_policy_copy.shape), (game.height, game.width, 6))
+                original_policy_copy = np.reshape(original_policy_copy, (game.height, game.width, 6))
+            else:
+                new_policy = np.reshape(np.zeros(original_policy_copy.shape), (game.height, game.width))
+                original_policy_copy = np.reshape(original_policy_copy, (game.height, game.width))
 
-        for new_board_b, new_policy_b in self.shift_generator(original_canonical_board, policy, game,
-                                                              "bottom", return_original=False):
-            board_policy_list.append([new_board_b, new_policy_b])
+            for key, val in Game.rotation_mapping.items():
+                if val:
+                    new_board[0][val] = original_canonical_board_copy[0][key]
+                    new_board[1][val] = original_canonical_board_copy[1][key]
+                    new_board[2][val] = original_canonical_board_copy[2][key]
+                    new_board[3][val] = original_canonical_board_copy[3][key]
 
-        # Left Right + Top Bottom + Flip
-        for new_board_r, new_policy_r in self.shift_generator(original_canonical_board, policy, game,
-                                                              "right", return_original=False):
-            for new_board_t, new_policy_t in self.shift_generator(new_board_r, new_policy_r, game,
-                                                                  "top", return_original=True):
-                board_policy_list.append([new_board_t, new_policy_t])
-
-            for new_board_b, new_policy_b in self.shift_generator(new_board_r, new_policy_r, game,
-                                                                  "bottom", return_original=False):
-                board_policy_list.append([new_board_b, new_policy_b])
-
-        for new_board_l, new_policy_l in self.shift_generator(original_canonical_board, policy, game,
-                                                              "left", return_original=False):
-            for new_board_t, new_policy_t in self.shift_generator(new_board_l, new_policy_l, game,
-                                                                  "top", return_original=True):
-                board_policy_list.append([new_board_t, new_policy_t])
-
-            for new_board_b, new_policy_b in self.shift_generator(new_board_l, new_policy_l, game,
-                                                                  "bottom", return_original=False):
-                board_policy_list.append([new_board_b, new_policy_b])
+                    if game.phase == 0:
+                        for i2 in range(6):
+                            new_policy[val][game.direction_mapping[i2]] = original_policy_copy[key][i2]
+                    else:
+                        new_policy[val] = original_policy_copy[key]
+            if not self.is_board_configuration_valid(new_board):
+                print("Invalid State Found.")
+                break
+            board_policy_list.append([new_board, new_policy.flatten()])
+            original_canonical_board_copy = np.copy(new_board)
+            original_policy_copy = np.copy(new_policy.flatten())
         return board_policy_list
 
     def flip_generator(self, original_canonical_board, original_policy, game, direction="horizontal",
@@ -143,6 +145,13 @@ class NonagaGameManager:
         canonical_board = np.copy(game.board)
         canonical_board[1] *= player
         return canonical_board
+
+    def is_board_configuration_valid(self, board):
+        if np.sum(board[0]) != 19:
+            return False
+        if np.sum(board[1]) != 0:
+            return False
+        return True
 
     def get_string_representation(self, game, canonical_board):
         tile_string = "tiles:"
