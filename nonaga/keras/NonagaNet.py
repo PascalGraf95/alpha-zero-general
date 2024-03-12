@@ -1,9 +1,10 @@
+import os
+os.environ["KERAS_BACKEND"] = "torch"
 import sys
 sys.path.append('..')
 from utils import *
 
 import argparse
-import keras.api._v2.keras as keras
 from keras.models import *
 from keras.layers import Conv2D, Input, BatchNormalization, Flatten, Dense, Dropout, Softmax, Concatenate, Add
 from keras.layers import Conv2D

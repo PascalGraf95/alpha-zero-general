@@ -67,11 +67,11 @@ class NNetWrapper:
 
         for e in range(args.epochs):
             self.network.pi1_model.fit(x=input_boards_phase_zero, y=[target_pis_phase_zero, target_vs_phase_zero],
-                                       batch_size=args.batch_size, epochs=1, verbose=1)
+                                       batch_size=args.batch_size, epochs=1, verbose=2)
 
             self.network.pi2_model.fit(x=input_boards_phase_one_two,
                                        y=[target_pis_phase_one_two, target_vs_phase_one_two],
-                                       batch_size=args.batch_size, epochs=1, verbose=1)
+                                       batch_size=args.batch_size, epochs=1, verbose=2)
 
     def predict(self, game, board, dummy_values=-10):
         """
@@ -91,7 +91,7 @@ class NNetWrapper:
 
     def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
         # change extension
-        filename = filename.split(".")[0] + ".h5"
+        filename = filename.split(".")[0] + ".weights.h5"
 
         filepath = os.path.join(folder, filename)
         if not os.path.exists(folder):
