@@ -24,7 +24,7 @@ args = dotdict({
 
     'checkpoint': './nonaga/models',
     'load_model': True,
-    'load_folder_file': ('./nonaga/models/', 'best.h5', 'checkpoint_samples_3.pth.tar'),
+    'load_folder_file': ('./nonaga/models/', 'best.h5', 'checkpoint_samples_7.pth.tar'),
     'max_history_length': 20,
     'mode': 'self-play'
 

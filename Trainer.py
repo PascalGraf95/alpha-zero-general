@@ -49,9 +49,6 @@ class Trainer:
             episode_step += 1
             if game.phase == 0:
                 self.game_manager.display(game)
-                if input("This is the current board (current player: " + str(self.current_player) +
-                         "). Do you want to continue? (Press Enter)") == "n":
-                    continue
 
             # Get the current policy according to the neural network and MCTS. The neural network suggests
             # the initial policy and the mcts refines it with rollouts. The number of new states to be explored
@@ -99,8 +96,9 @@ class Trainer:
             if episode_step > 320:
                 return []
             if episode_step % 80 == 0 and episode_step != 0:
-                self.game_manager.display(game)
-                print("This is the current game state.")
+                #self.game_manager.display(game)
+                #print("This is the current game state.")
+                pass
 
             episode_step += 1
             canonical_board = self.game_manager.get_canonical_form(game, self.current_player)
@@ -132,9 +130,9 @@ class Trainer:
 
             # If there is a winner the game has end. Return the training samples without the current player property.
             if winner != 0:
-                self.game_manager.display(game)
-                print("This is how the game ended. "
-                      "Its value is: {} for player {}".format(winner, self.current_player))
+                # self.game_manager.display(game)
+                # print("This is how the game ended. "
+                #       "Its value is: {} for player {}".format(winner, self.current_player))
                 # Board, Phase, Policy, Value
                 actual_samples = [(sample[0], sample[2], sample[3], winner * (-1) ** (sample[1] != self.current_player))
                                   for sample in training_samples]
