@@ -1,12 +1,18 @@
 from __future__ import print_function
+
+import os
 import sys
 sys.path.append('..')
 from Game import Game as BaseGame
 from nonaga.NonagaLogic import Game
 import numpy as np
+import cv2
 
 
 class NonagaGameManager:
+    def __init__(self):
+        self.previous_board = None
+
     def reset_board(self, scenario=0):
         # return initial board (numpy board)
         return Game(scenario=scenario)
@@ -26,16 +32,16 @@ class NonagaGameManager:
         return new_game, next_player
 
     def get_valid_moves(self, game, player):
-        valid_moves = game.get_legal_moves(player)
+        legal_moves = game.get_legal_moves(player)
         if game.phase == 0:
             all_moves_masked = np.zeros((game.height, game.width, 6))
-            for m in valid_moves:
+            for m in legal_moves:
                 all_moves_masked[m[0], m[1], m[2]] = 1
         else:
             all_moves_masked = np.zeros((game.height, game.width))
-            for m in valid_moves:
+            for m in legal_moves:
                 all_moves_masked[m[0], m[1]] = 1
-        return all_moves_masked.flatten()
+        return all_moves_masked.flatten(), legal_moves
 
     def get_symmetries(self, game, player, policy):
         # Copy Original board and policy
@@ -176,7 +182,7 @@ class NonagaGameManager:
         # print(len(np.array2string(canonical_board)))
         return string_representation
 
-    def display(self, game):
+    def display(self, game: Game):
         width = 15
         height = 12
         print("    ", end="")
@@ -197,6 +203,98 @@ class NonagaGameManager:
                 print(letter, end="  ")
             print("|")
         print("---------------------------------------------------")
+
+    def draw_board_cv2(self, game: Game, current_player: int, scale: int = 40, turn_number: int = 0, save: bool = False):
+        """
+        Draws the board using OpenCV, showing last move by comparing with previous board.
+        Highlights moved tiles and pieces.
+
+        Args:
+            game: Game instance with board state.
+            scale: Pixel size per tile (diameter).
+        """
+        width = 15
+        height = 12
+        board = game.board
+
+        tile_radius = scale // 2
+        horizontal_spacing = int(scale * 0.6)
+        vertical_spacing = int(scale * 1.2 * 0.6)
+
+        img_height = height * vertical_spacing + scale
+        img_width = width * horizontal_spacing + scale
+        border = 10
+
+        img = np.ones((img_height + 2 * border, img_width + 2 * border, 3), dtype=np.uint8) * 255
+
+        # Compare with previous board (if exists)
+        previous_tiles = None
+        previous_pieces = None
+        if  self.previous_board is not None and turn_number > 0:
+            previous_tiles = self.previous_board[0]
+            previous_pieces = self.previous_board[1]
+
+        for y in range(height):
+            for x in range(width):
+                center_x = x * horizontal_spacing + tile_radius + border
+                center_y = y * vertical_spacing + tile_radius + border
+                center = (center_x, center_y)
+
+                is_tile = board[0][y][x] == 1
+                piece = board[1][y][x]
+
+                # Draw tile
+                if is_tile:
+                    cv2.circle(img, center, tile_radius - 4, color=(230, 230, 230), thickness=-1)
+
+                # Draw piece
+                if piece == 1:
+                    cv2.circle(img, center, tile_radius - 10, color=(0, 0, 255), thickness=-1)
+                elif piece == -1:
+                    cv2.circle(img, center, tile_radius - 10, color=(255, 0, 0), thickness=-1)
+
+                # Draw outline for tiles
+                if is_tile:
+                    cv2.circle(img, center, tile_radius - 4, color=(180, 180, 180), thickness=1)
+
+                # Highlight moved tiles
+                if previous_tiles is not None and board[0][y][x] != previous_tiles[y][x]:
+                    cv2.circle(img, center, tile_radius - 2, color=(0, 255, 255), thickness=2)
+
+                # Highlight moved pieces
+                if previous_pieces is not None and board[1][y][x] != previous_pieces[y][x]:
+                    cv2.circle(img, center, tile_radius - 12, color=(0, 255, 0), thickness=2)
+
+        # Coordinate labels
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.4
+        thickness = 1
+        for x in range(width):
+            label = "{:02d}".format(x)
+            pos = (x * horizontal_spacing + tile_radius + border - 10, 15)
+            cv2.putText(img, label, pos, font, font_scale, (0, 0, 0), thickness, cv2.LINE_AA)
+
+        for y in range(height):
+            label = "{:02d}".format(y)
+            pos = (5, y * vertical_spacing + tile_radius + border + 5)
+            cv2.putText(img, label, pos, font, font_scale, (0, 0, 0), thickness, cv2.LINE_AA)
+
+        # Show turn indicator (Phase and next player, optional)
+        turn_info = f"Phase: {game.phase} | Player: {'Red' if current_player == 1 else 'Blue'}"
+        cv2.putText(img, turn_info, (10, img.shape[0] - 10), font, 0.5, (50, 50, 50), 1, cv2.LINE_AA)
+
+        if save:
+            if turn_number == 0:
+                for file in os.listdir("last_game"):
+                    os.remove(os.path.join("last_game", file))
+            cv2.imwrite(os.path.join("last_game", "NonagaBoard_turn{:04d}.png".format(int(turn_number))), img)
+        else:
+            cv2.imshow("Nonaga Board", img)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+        # Store board state for next comparison
+        self.previous_board = np.copy(board)
 
     def display_by_board(self, canonical_board):
         width = 15

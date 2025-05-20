@@ -279,11 +279,10 @@ class Game:
         """Perform the given move on the board; (1=red,-1=black)
         """
         if form == 0:
-            if form == 0:
-                if self.phase == 0:
-                    move = list(np.unravel_index(move, (self.height, self.width, 6)))
-                else:
-                    move = list(np.unravel_index(move, (self.height, self.width)))
+            if self.phase == 0:
+                move = list(np.unravel_index(move, (self.height, self.width, 6)))
+            else:
+                move = list(np.unravel_index(move, (self.height, self.width)))
 
         if self.phase == 0:
             # region - Piece Moves -

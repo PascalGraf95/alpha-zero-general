@@ -1,7 +1,9 @@
 import logging
 
+import numpy as np
 from tqdm import tqdm
 from nonaga.NonagaGameManager import NonagaGameManager as GameManager
+from MCTS import MCTS
 
 log = logging.getLogger(__name__)
 
@@ -11,7 +13,7 @@ class Arena():
     An Arena class where any 2 agents can be pit against each other.
     """
 
-    def __init__(self, player1, player2, game_manager: GameManager, display=None):
+    def __init__(self, player1: MCTS, player2: MCTS, game_manager: GameManager, display=None):
         """
         Input:
             player 1,2: two functions that takes board as input, return action
@@ -38,13 +40,18 @@ class Arena():
             or
                 draw result returned from the game that is neither 1, -1, nor 0.
         """
+        self.player1.reset()
+        self.player2.reset()
+
         players = [self.player2, None, self.player1]
         current_player = starting_player
         game = self.game_manager.reset_board()
         num_steps = 0
         while self.game_manager.has_game_ended(game, current_player) == 0:
             num_steps += 1
-            action = players[current_player + 1](game, current_player)
+            policy = players[current_player + 1].get_action_probabilities(game, current_player,
+                                                                                        random_policy_actions=1)
+            action = np.random.choice(len(policy), p=policy)
             game, current_player = self.game_manager.get_next_state(game, current_player, action)
 
             if num_steps > 300:

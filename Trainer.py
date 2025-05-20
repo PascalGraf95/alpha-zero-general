@@ -9,7 +9,7 @@ import numpy as np
 from tqdm import tqdm
 
 from Arena import Arena
-from MCTS import MCTS
+from MCTS import MCTS, RandomAgent
 
 from nonaga.NonagaGameManager import NonagaGameManager as GameManager
 from nonaga.keras import NNet as Network
@@ -36,39 +36,40 @@ class Trainer:
         self.skip_first_step_self_play = False
         self.current_player = 0
 
-    def play_games(self):
+    def play_games(self, stochastic_policy = False):
         game = self.game_manager.reset_board()
         self.current_player = 1
         episode_step = 0
 
         # Play the full episode until game has ended
         while True:
-            if episode_step > 320:
-                return []
-
             episode_step += 1
             if game.phase == 0:
-                self.game_manager.display(game)
+                self.game_manager.draw_board_cv2(game, self.current_player, turn_number=(episode_step-1)/3, save=True)
 
             # Get the current policy according to the neural network and MCTS. The neural network suggests
             # the initial policy and the mcts refines it with rollouts. The number of new states to be explored
             # is limited by num_mcts_sims
             policy = self.mcts.get_action_probabilities(game, self.current_player,
-                                                        random_policy_actions=1)
-            print(".")
-
+                                                        random_policy_actions=1, debug=False)
             # Choose the actual action and execute
-            action = np.argmax(policy)
+            if stochastic_policy:
+                action = np.random.choice(len(policy), p=policy)
+            else:
+                action = np.argmax(policy)
             game, self.current_player = self.game_manager.get_next_state(game, self.current_player, action)
 
             winner = self.game_manager.has_game_ended(game, self.current_player)
 
             # If there is a winner the game has ended. Return the training samples without the current player property.
             if winner != 0:
-                self.game_manager.display(game)
-                input("This is how the game ended. Winner: " + str(winner) +
-                      ". Do you want to continue? (Press Enter)")
+                self.game_manager.draw_board_cv2(game, self.current_player, turn_number=(episode_step-1)/3+1, save=True)
+                # input("This is how the game ended. Winner: " + str(winner) +
+                #       ". Do you want to continue? (Press Enter)")
                 game = self.game_manager.reset_board()
+                self.mcts = MCTS(self.game_manager, self.player_network, self.args)
+                self.current_player = 1
+                episode_step += 1
 
     def execute_episode(self, random=False):
         """
@@ -95,15 +96,10 @@ class Trainer:
         while True:
             if episode_step > 320:
                 return []
-            if episode_step % 80 == 0 and episode_step != 0:
-                #self.game_manager.display(game)
-                #print("This is the current game state.")
-                pass
 
             episode_step += 1
-            canonical_board = self.game_manager.get_canonical_form(game, self.current_player)
             # Later in the tree search action should be more deterministic to end the episode
-            random_policy_actions = int(episode_step < self.args.random_policy_threshold)
+            # random_policy_actions = int(episode_step < self.args.random_policy_threshold)
             random_policy_actions = 1
 
             # Get the current policy according to the neural network and MCTS. The neural network suggests
@@ -116,11 +112,9 @@ class Trainer:
             # Add all symmetrical boards to the training samples as they are identical in policy
             symmetries = self.game_manager.get_symmetries(game, self.current_player, np.copy(policy))
             for b, p in symmetries:
+                # Training Sample: Board Configuration, Current Player, Policy, Phase, Value (which is unknown yet)
                 training_samples.append([b, self.current_player, game.phase, p, None])
             # endregion
-
-            # Training Sample: Board Configuration, Current Player, Policy, Phase, Value (which is unknown yet)
-            # training_samples.append([canonical_board, self.current_player, game.phase, policy, None])
 
             # Choose the actual action and execute
             action = np.random.choice(len(policy), p=policy)
@@ -156,7 +150,7 @@ class Trainer:
             if not self.skip_first_step_self_play or i > 1:
                 training_samples = deque([], maxlen=self.args.max_len_queue)
 
-                # Do x episodes of self-play to fill the
+                # Do x episodes of self-play to fill the buffer
                 for _ in tqdm(range(self.args.num_episodes), desc="Self Play"):
                     self.mcts = MCTS(self.game_manager, self.player_network, self.args)  # reset search tree
                     training_samples += self.execute_episode()
@@ -183,24 +177,42 @@ class Trainer:
                 training_batch.extend(e)
             shuffle(training_batch)
 
-            # Actual Training
+            # Store model before training and load it for the competitor
             self.player_network.save_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
             self.competitor_network.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
             competitor_mcts = MCTS(self.game_manager, self.competitor_network, self.args)
 
-            # Actual Training
+            # Then perform the actual training process
             self.player_network.train(training_batch)
             player_mcts = MCTS(self.game_manager, self.player_network, self.args)
+
+            # Instantiate the pure MCTS agent
+            pure_mcts = MCTS(self.game_manager, None, self.args)
+
+            # Instantiate random agent
+            random_agent = RandomAgent(self.game_manager, None, self.args)
             # endregion
 
             # region Arena Playoff
-            log.info('PITTING AGAINST PREVIOUS VERSION')
-            arena = Arena(lambda x, y: np.argmax(player_mcts.get_action_probabilities(x, y, random_policy_actions=0)),
-                          lambda x, y: np.argmax(competitor_mcts.get_action_probabilities(x, y, random_policy_actions=0)),
-                          game_manager=self.game_manager)
-            new_wins, old_wins, draws = arena.play_games(self.args.arena_matches)
+            log.info('STARTING ARENA MATCHES')
+            log.info('----------------------')
 
+            log.info('PITTING AGAINST PREVIOUS VERSION')
+            arena = Arena(player_mcts, competitor_mcts, game_manager=self.game_manager)
+            new_wins, old_wins, draws = arena.play_games(self.args.arena_matches)
             log.info('NEW/PREV WINS : %d / %d ; DRAWS : %d' % (new_wins, old_wins, draws))
+
+            log.info('PITTING AGAINST MCTS PLAYER')
+            arena = Arena(player_mcts, pure_mcts, game_manager=self.game_manager)
+            pvm_wins, pvm_losses, pvm_draws = arena.play_games(self.args.arena_matches)
+            log.info('PLAYER/MCTS WINS : %d / %d ; DRAWS : %d' % (pvm_wins, pvm_losses, pvm_draws))
+
+            log.info('PITTING AGAINST RANDOM PLAYER')
+            arena = Arena(player_mcts, random_agent, game_manager=self.game_manager)
+            pvr_wins, pvr_losses, pvr_draws = arena.play_games(self.args.arena_matches)
+            log.info('PLAYER/RANDOM WINS : %d / %d ; DRAWS : %d' % (pvr_wins, pvr_losses, pvr_draws))
+
+
             if old_wins + new_wins == 0 or float(new_wins) / (old_wins + new_wins) < self.args.update_threshold:
                 log.info('REJECTING NEW MODEL')
                 self.player_network.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')

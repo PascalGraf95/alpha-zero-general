@@ -12,8 +12,6 @@ EPS = 1e-8
 log = logging.getLogger(__name__)
 
 
-
-
 class MCTS:
     def __init__(self, game_manager: GameManager, network: Network, args):
         self.game_manager = game_manager
@@ -28,15 +26,29 @@ class MCTS:
         self.game_ended_states = {}  # stores game.getGameEnded ended for board s
         self.valid_moves_in_states = {}  # stores game.getValidMoves for board
 
-    def get_action_probabilities(self, game, player, random_policy_actions=1):
+    def reset(self):
+        self.action_values = {}  # stores Q values for s,a (as defined in the paper)
+        self.state_action_visits = {}  # stores #times edge s,a was visited
+        self.state_visits = {}  # stores #times board s was visited
+        self.policy_s = {}  # stores initial policy (returned by neural net)
+
+        self.game_ended_states = {}  # stores game.getGameEnded ended for board s
+        self.valid_moves_in_states = {}  # stores game.getValidMoves for board
+
+    def get_action_probabilities(self, game, player, random_policy_actions=1, debug=False):
         # Perform x MCTS simulations from the current state
         for i in range(self.args.num_mcts_sims):
-            self.search(game, player, player)
+            self.search(game, player, player, debug=debug)
 
         # Get the count of how often which action has been performed for each available action in the current state.
         s = self.game_manager.get_string_representation(game, self.game_manager.get_canonical_form(game, player))
         action_counts = [self.state_action_visits[(s, a)] if (s, a) in self.state_action_visits else 0 for a in
                          range(self.game_manager.get_action_size(game))]
+
+        action_count_indices = np.nonzero(action_counts)[0]
+        action_count_dict = {}
+        for a in action_count_indices:
+            action_count_dict[a] = action_counts[a]
 
         # Act deterministically towards later stages of the tree search. Take one of the actions that have been chosen
         # the most.
@@ -54,7 +66,7 @@ class MCTS:
         action_probabilities = [x / action_counts_sum for x in action_counts]
         return action_probabilities
 
-    def search(self, game, player, original_player, recurrence_depth=0):
+    def search(self, game, player, original_player, recurrence_depth=0, debug=False):
         canonical_board = self.game_manager.get_canonical_form(game, player)
         s = self.game_manager.get_string_representation(game, canonical_board)
 
@@ -75,47 +87,56 @@ class MCTS:
 
         # Check if policy and value have not been calculated already
         if s not in self.policy_s:
-            # Leaf Node
-            self.policy_s[s], value = self.player_network.predict(game, canonical_board)
-            valid_moves = self.game_manager.get_valid_moves(game, player)
-            # print("There are {} valid moves for player {}".format(len(np.nonzero(valid_moves)[0]), player))
-            # Mask all moves that are not valid in the current state
-            self.policy_s[s] = self.policy_s[s] * valid_moves
+            valid_moves_masked, _ = self.game_manager.get_valid_moves(game, player)
 
-            # Normalize the probabilities over all valid actions in the current state to sum to 1.
-            summed_action_probabilities = np.sum(self.policy_s[s])
-            if summed_action_probabilities > 0:
-                self.policy_s[s] /= summed_action_probabilities
+            if self.player_network is not None:
+                # Use neural network to get policy and value
+                self.policy_s[s], value = self.player_network.predict(game, canonical_board)
+                self.policy_s[s] *= valid_moves_masked
+                summed_action_probabilities = np.sum(self.policy_s[s])
+                if summed_action_probabilities > 0:
+                    self.policy_s[s] /= summed_action_probabilities
+                else:
+                    log.warning("All valid moves had zero probability, falling back to uniform.")
+                    self.policy_s[s] = valid_moves_masked / np.sum(valid_moves_masked)
             else:
-                # In the case that the probability of all valid actions is zero, do a workaround. This should
-                # not happen frequently
-                log.error("All valid moves had zero probability, performing a workaround.")
-                self.policy_s[s] = self.policy_s[s] + valid_moves
-                self.policy_s[s] /= np.sum(self.policy_s[s])
+                # Fallback: uniform probabilities and zero value
+                self.policy_s[s] = valid_moves_masked / np.sum(valid_moves_masked)
+                value = 0
 
-            self.valid_moves_in_states[s] = valid_moves
+            self.valid_moves_in_states[s] = valid_moves_masked
             self.state_visits[s] = 0
             return value if original_player == player else -value
         # endregion
 
         # region Already Visited State
         valid_moves = self.valid_moves_in_states[s]
+        if debug:
+            _, legal_moves = self.game_manager.get_valid_moves(game, player)
         current_best = -float('inf')
         best_action = -1
 
         # For each action calculate the upper confidence bound
-        for a in range(self.game_manager.get_action_size(game)):
+        valid_action_indices = np.nonzero(valid_moves)[0]
+        ucb_dict = {}
+        for a in valid_action_indices:
             # Only of the action is valid in the current state calculate the UCB
-            if valid_moves[a]:
-                if (s, a) in self.action_values:
-                    # UCB = action value + c * policy_probability * sqrt(state_visits) / (1+ state_action_visits)
-                    ucb = self.action_values[(s, a)] + self.args.cpuct * self.policy_s[s][a] \
-                          * math.sqrt(self.state_visits[s]) / (1 + self.state_action_visits[(s, a)])
-                else:
-                    ucb = self.args.cpuct * self.policy_s[s][a] * math.sqrt(self.state_visits[s] + EPS)
-                if ucb > current_best:
-                    current_best = ucb
-                    best_action = a
+            if (s, a) in self.action_values:
+                # UCB = action value + c * policy_probability * sqrt(state_visits) / (1+ state_action_visits)
+                action_value = self.action_values[(s, a)]
+                policy_value = self.policy_s[s][a]
+                confidence_bonus = self.args.cpuct * math.sqrt(self.state_visits[s]) / (1 + self.state_action_visits[(s, a)])
+                ucb =  action_value + (confidence_bonus * policy_value)
+                ucb_dict[a] = {"action_value": action_value, "confidence_bonus": confidence_bonus, "policy_value":policy_value, "ucb": ucb}
+            else:
+                policy_value = self.policy_s[s][a]
+                confidence_bonus = self.args.cpuct * math.sqrt(self.state_visits[s] + EPS)
+                # ucb = self.args.cpuct * policy_value * math.sqrt(self.state_visits[s] + EPS)
+                ucb = confidence_bonus * policy_value
+                ucb_dict[a] = {"action_value": 0, "confidence_bonus": confidence_bonus, "policy_value": policy_value, "ucb": ucb}
+            if ucb > current_best:
+                current_best = ucb
+                best_action = a
 
         next_game, next_player = self.game_manager.get_next_state(game, player, best_action)
 
@@ -138,3 +159,12 @@ class MCTS:
 
         return value if original_player == player else -value
 
+
+class RandomAgent(MCTS):
+    def __init__(self, game_manager: GameManager, network: Network, args):
+        super().__init__(game_manager, network, args)
+
+    def get_action_probabilities(self, game, player, random_policy_actions=1, debug=False):
+        valid_moves_masked, _ = self.game_manager.get_valid_moves(game, player)
+        random_action_probabilities = valid_moves_masked / np.sum(valid_moves_masked)
+        return random_action_probabilities
