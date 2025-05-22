@@ -8,12 +8,12 @@ from MCTS import MCTS
 log = logging.getLogger(__name__)
 
 
-class Arena():
+class Arena:
     """
     An Arena class where any 2 agents can be pit against each other.
     """
 
-    def __init__(self, player1: MCTS, player2: MCTS, game_manager: GameManager, display=None):
+    def __init__(self, player1: MCTS, player2: MCTS, game_manager: GameManager, display=None, args=None):
         """
         Input:
             player 1,2: two functions that takes board as input, return action
@@ -29,6 +29,7 @@ class Arena():
         self.player2 = player2
         self.game_manager = game_manager
         self.display = display
+        self.args = args
 
     def play_game(self, starting_player):
         """
@@ -49,8 +50,9 @@ class Arena():
         num_steps = 0
         while self.game_manager.has_game_ended(game, current_player) == 0:
             num_steps += 1
+            random_policy_actions = int(num_steps < self.args.random_policy_threshold)
             policy = players[current_player + 1].get_action_probabilities(game, current_player,
-                                                                                        random_policy_actions=1)
+                                                                                        random_policy_actions=random_policy_actions)
             action = np.random.choice(len(policy), p=policy)
             game, current_player = self.game_manager.get_next_state(game, current_player, action)
 

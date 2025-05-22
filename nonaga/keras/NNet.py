@@ -19,9 +19,10 @@ args = dotdict({
     'lr': 0.0005,
     'dropout': 0.3,
     'epochs': 5,
-    'batch_size': 64,
+    'batch_size': 128,
+    'num_residuals': 4,
     'cuda': True,
-    'num_channels': 64,
+    'num_channels': 128,
 })
 
 
@@ -100,7 +101,7 @@ class NNetWrapper:
 
     def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
         # change extension
-        filename = filename.split(".")[0] + ".h5"
+        filename = filename.split(".")[0] + ".weights.h5"
 
         # https://github.com/pytorch/examples/blob/master/imagenet/main.py#L98
         filepath = os.path.join(folder, filename)

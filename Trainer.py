@@ -99,8 +99,8 @@ class Trainer:
 
             episode_step += 1
             # Later in the tree search action should be more deterministic to end the episode
-            # random_policy_actions = int(episode_step < self.args.random_policy_threshold)
-            random_policy_actions = 1
+            random_policy_actions = int(episode_step < self.args.random_policy_threshold)
+            # random_policy_actions = 1
 
             # Get the current policy according to the neural network and MCTS. The neural network suggests
             # the initial policy and the mcts refines it with rollouts. The number of new states to be explored
@@ -198,17 +198,17 @@ class Trainer:
             log.info('----------------------')
 
             log.info('PITTING AGAINST PREVIOUS VERSION')
-            arena = Arena(player_mcts, competitor_mcts, game_manager=self.game_manager)
+            arena = Arena(player_mcts, competitor_mcts, game_manager=self.game_manager, args=self.args)
             new_wins, old_wins, draws = arena.play_games(self.args.arena_matches)
             log.info('NEW/PREV WINS : %d / %d ; DRAWS : %d' % (new_wins, old_wins, draws))
 
             log.info('PITTING AGAINST MCTS PLAYER')
-            arena = Arena(player_mcts, pure_mcts, game_manager=self.game_manager)
+            arena = Arena(player_mcts, pure_mcts, game_manager=self.game_manager, args=self.args)
             pvm_wins, pvm_losses, pvm_draws = arena.play_games(self.args.arena_matches)
             log.info('PLAYER/MCTS WINS : %d / %d ; DRAWS : %d' % (pvm_wins, pvm_losses, pvm_draws))
 
             log.info('PITTING AGAINST RANDOM PLAYER')
-            arena = Arena(player_mcts, random_agent, game_manager=self.game_manager)
+            arena = Arena(player_mcts, random_agent, game_manager=self.game_manager, args=self.args)
             pvr_wins, pvr_losses, pvr_draws = arena.play_games(self.args.arena_matches)
             log.info('PLAYER/RANDOM WINS : %d / %d ; DRAWS : %d' % (pvr_wins, pvr_losses, pvr_draws))
 
@@ -235,7 +235,7 @@ class Trainer:
             Pickler(f).dump(self.training_samples_history)
 
     def load_training_samples(self):
-        model_file = os.path.join(self.args.load_folder_file[0], self.args.load_folder_file[1])
+        # model_file = os.path.join(self.args.load_folder_file[0], self.args.load_folder_file[1])
         sample_file = os.path.join(self.args.load_folder_file[0], self.args.load_folder_file[2])
         if not os.path.isfile(sample_file):
             log.warning(f'File "{sample_file}" with trainExamples not found!')

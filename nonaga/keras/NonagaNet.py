@@ -6,9 +6,22 @@ from utils import *
 
 import argparse
 from keras.models import *
-from keras.layers import Conv2D, Input, BatchNormalization, Flatten, Dense, Dropout, Softmax, Concatenate, Add
+from keras.layers import Conv2D, Input, BatchNormalization, Flatten, Dense, Dropout, Softmax, Concatenate, Add, Activation, GlobalAveragePooling2D
 from keras.layers import Conv2D
 from keras.optimizers import Adam
+
+def residual_block(filters, kernel_size=5):
+    def apply(x):
+        """A basic residual block with two Conv-BN-ReLU layers and a skip connection."""
+        y = Conv2D(filters, kernel_size=kernel_size, padding="same", use_bias=False)(x)
+        y = BatchNormalization()(y)
+        y = Activation("relu")(y)
+        y = Conv2D(filters, kernel_size=kernel_size, padding="same", use_bias=False)(y)
+        y = BatchNormalization()(y)
+        x = Add()([x, y])
+        x = Activation("relu")(x)
+        return x
+    return apply
 
 
 class NonagaNet:
@@ -18,49 +31,32 @@ class NonagaNet:
         self.args = args
 
         # Neural Net
-        self.input_boards = Input(shape=(self.board_width, self.board_height, 5))  # batch_size  x board_x x board_y x 3
-        x = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same", use_bias=False)(self.input_boards)
+        self.input_boards = Input(shape=(self.board_width, self.board_height, 5))  # batch_size  x board_x x board_y x 5
+
+        # Initial conv layer
+        x = Conv2D(args.num_channels, kernel_size=5, padding="same", use_bias=False)(self.input_boards)
         x = BatchNormalization()(x)
-        y = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same", use_bias=False)(x)
-        y = BatchNormalization()(y)
-        y = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same", use_bias=False)(y)
-        y = BatchNormalization()(y)
-        x = Add()([y, x])
-        y = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same", use_bias=False)(x)
-        y = BatchNormalization()(y)
-        y = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same", use_bias=False)(y)
-        y = BatchNormalization()(y)
-        x = Add()([y, x])
-        y = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same", use_bias=False)(x)
-        y = BatchNormalization()(y)
-        y = Conv2D(args.num_channels, kernel_size=5, activation="relu", padding="same", use_bias=False)(y)
-        y = BatchNormalization()(y)
-        x = Add()([y, x])
-        x = Conv2D(args.num_channels/8, kernel_size=5, activation="relu", use_bias=False)(x)
-        x = BatchNormalization()(x)
-        x = Flatten()(x)
+        x = Activation("relu")(x)
 
-        # x = Dense(256, activation="relu")(x)
+        # Residual blocks
+        for _ in range(args.num_residuals):  # ToDo: make this a parameter like `args.res_blocks`
+            x = residual_block(args.num_channels)(x)
 
+        # Global pooling and dropout
+        x = GlobalAveragePooling2D()(x)
+        x = Dropout(args.dropout)(x)
 
+        # --- Policy Head 1: Piece Movement ---
+        self.pi1 = Dense(self.board_width * self.board_height * 6, activation="softmax", name="pi1")(x)
 
+        # --- Policy Head 2: Tile Selection or Placement ---
+        self.pi2 = Dense(self.board_width * self.board_height, activation="softmax", name="pi2")(x)
 
-        # Policy Head 1 - piece Movement
-        # 6 layers of left/right/top right/top left/bottom right/bottom left
-        #pi = Conv2D(args.num_channels/8, kernel_size=1)(x)
-        #pi = Flatten()(pi)
-        self.pi1 = Dense(self.board_width*self.board_height*6, activation="softmax", name="pi1")(x)
-
-        # Policy Head 2 - tile Start and Target
-        # 1 layer for tile to
-        self.pi2 = Dense(self.board_width*self.board_height, activation="softmax", name="pi2")(x)
-
-        # Value
-        # v = Flatten()(x)
-        # v = Dense(256, activation="relu")(v)
-        # v = Dropout(args.dropout)(v)
-        v = Dense(512, activation="relu")(x)
+        # --- Value Head ---
+        v = Dense(128, activation="relu")(x)
+        v = Dropout(args.dropout)(v)
         self.v = Dense(1, activation='tanh', name='v')(v)
+
 
         self.pi1_model = Model(inputs=self.input_boards, outputs=[self.pi1, self.v])
         self.pi1_model.compile(loss=['categorical_crossentropy', 'mse'], optimizer=Adam(args.lr))
@@ -68,5 +64,5 @@ class NonagaNet:
         self.pi2_model.compile(loss=['categorical_crossentropy', 'mse'], optimizer=Adam(args.lr))
         self.model = Model(inputs=self.input_boards, outputs=[self.pi1, self.pi2, self.v])
 
-        self.model.summary()
+        # self.model.summary()
 
