@@ -93,12 +93,7 @@ class EnhancedMCTS:
                 path.append(node)
 
             if result := node.game.check_for_game_end(node.current_player):
-                for n in reversed(path):
-                    n.visit_count += 1
-                    if n.current_player == node.current_player:
-                        n.value_sum += result
-                    else:
-                        n.value_sum += -result
+                path[-1].backpropagate(result, node.current_player)
             else:
                 leaves.append(node)
                 search_paths.append(path)
@@ -108,7 +103,7 @@ class EnhancedMCTS:
         if leaves:
             # Send leaf states to inference process
             for node in leaves:
-                self.inference_queue.put([node.game, node.current_player, self.worker_id, self.result_queue])
+                self.inference_queue.put([node.game, node.current_player, self.worker_id])
 
             # Collect inference results
             policies, values = [], []
@@ -122,13 +117,8 @@ class EnhancedMCTS:
                 action_priors = {a: policy[a] for a in node.legal_moves}
                 node.expand(action_priors, next_states_fn, next_legal_moves_fn)
 
-                from_player = node.player
-                for n in reversed(path):
-                    n.visit_count += 1
-                    if n.player == from_player:
-                        n.value_sum += value
-                    else:
-                        n.value_sum += -value
+                # Backpropagate the value from the neural net
+                path[-1].backpropagate(value, node.current_player)
             # endregion
         return {action: (child.visit_count, child.value) for action, child in root_node.children.items()}
 
@@ -172,7 +162,8 @@ class Worker(mp.Process):
                 symmetries = self.game_manager.get_symmetries(game, self.current_player, np.copy(policy))
                 for board_sym, policy_sym in symmetries:
                     # Training Sample: Board Configuration, Current Player, Policy, Phase, Value (which is unknown yet)
-                    training_samples.append([board_sym, self.current_player, game.phase, policy_sym, None])
+                    # training_samples.append([board_sym, self.current_player, game.phase, policy_sym, None])
+                    training_samples.append([board_sym, game.phase, policy_sym, None, self.current_player])
                 # endregion
 
                 game, self.current_player = self.game_manager.get_next_state(game, self.current_player, action)
@@ -182,12 +173,20 @@ class Worker(mp.Process):
 
                 # If there is a winner the game has end. Return the training samples without the current player property.
                 if winner != 0:
+                    # actual_samples = []
                     # Board, Phase, Policy, Value
+                    for board, phase, policy, _, player in training_samples:
+                        value = winner if player == self.current_player else -winner
+                        sample = (board, phase, policy, value)
+                        self.global_sample_queue.put(sample)
+                    """
                     actual_samples = [
                         (sample[0], sample[2], sample[3], winner * (-1) ** (sample[1] != self.current_player))
                         for sample in training_samples]
+
                     for sample in actual_samples:
                         self.global_sample_queue.put(sample)
+                    """
                     self.episodes_done_queue.put(winner)
                     break
 

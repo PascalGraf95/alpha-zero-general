@@ -88,7 +88,7 @@ class NNetWrapper:
             pi, v = self.network.pi2_model.predict(board, verbose=False)
         return pi[0], v[0][0]
 
-    def predict_batch(self, games, boards):
+    def predict_batch(self, boards, games):
         """
         Args:
             boards: list of np.array canonical boards (C, H, W)
@@ -102,6 +102,7 @@ class NNetWrapper:
 
         # Transpose to NHWC (batch, H, W, C)
         boards_np = np.array(boards)
+        print(boards_np.shape)
         boards_np = np.transpose(boards_np, (0, 2, 3, 1))
 
         # Separate by phase

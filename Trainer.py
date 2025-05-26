@@ -139,15 +139,16 @@ class EnhancedTrainer:
 
             start_time = time.time()
             while len(batch_boards) < batch_size and (time.time() - start_time) < 15:
+                print("CURRENT BATCH LENGTH:", len(batch_boards))
                 try:
                     item = self.global_inference_queue.get(timeout=wait_time)
 
-                    game, current_player, worker_id, request_id = item
+                    game, current_player, worker_id = item
                     canonical_board = self.game_manager.get_canonical_form(game, current_player)
 
                     batch_boards.append(canonical_board)
                     batch_games.append(game)
-                    metadata.append((worker_id, request_id))
+                    metadata.append(worker_id)
 
                 except queue.Empty:
                     continue
@@ -158,8 +159,8 @@ class EnhancedTrainer:
             policies, values = self.player_network.predict_batch(batch_boards, batch_games)
 
             # Send results back to workers
-            for (worker_id, request_id), policy, value in zip(metadata, policies, values):
-                self.result_queues[worker_id].put((request_id, policy, value))
+            for worker_id, policy, value in zip(metadata, policies, values):
+                self.result_queues[worker_id].put((policy, value))
 
     def generate_workers(self):
         self.stop_agents_event = mp.Event()
