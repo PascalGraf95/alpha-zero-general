@@ -20,6 +20,9 @@ class NonagaGameManager:
     def get_board_size(self, game: Game):
         return game.height, game.width
 
+    def get_observation_size(self):
+        return 15, 12, 5
+
     def get_action_size(self, game: Game):
         return game.get_action_size()
 

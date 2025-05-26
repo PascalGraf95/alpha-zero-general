@@ -1,15 +1,234 @@
 import logging
 import math
+import random
 
 import numpy as np
 # import ray
+import multiprocessing as mp
 
+from nonaga.NonagaLogic import Game
 from nonaga.NonagaGameManager import NonagaGameManager as GameManager
 from nonaga.keras.NNet import NNetWrapper as Network
 
 EPS = 1e-8
 
 log = logging.getLogger(__name__)
+
+
+class Node:
+    def __init__(self, game: Game, current_player, legal_moves_fn, parent=None, prior=0.0):
+        self.game = game
+        self.legal_moves, _ = legal_moves_fn(game, current_player)
+        self.parent = parent
+        self.prior = prior
+        self.current_player = current_player  # Store the player to move at this node
+
+        self.children = {}  # action -> Node
+        self.visit_count = 0
+        self.value_sum = 0.0
+        self.is_expanded = False
+
+    @property
+    def value(self):
+        if self.visit_count == 0:
+            return 0
+        return self.value_sum / self.visit_count
+
+    def expand(self, action_priors, next_states_fn, legal_moves_fn):
+        self.is_expanded = True
+        for action, prior in action_priors.items():
+            next_game, next_player = next_states_fn(self.game, action)
+            next_legal_moves = legal_moves_fn(next_game, next_player)
+            self.children[action] = Node(next_game, next_player, next_legal_moves, parent=self, prior=prior)
+
+    def select_child(self, cpuct=1.0):
+        best_score = -float("inf")
+        best_action = None
+        best_child = None
+
+        total_visits = sum(child.visit_count for child in self.children.values()) + 1e-8
+
+        for action, child in self.children.items():
+            ucb_score = child.ucb_score(total_visits, cpuct)
+            if ucb_score > best_score:
+                best_score = ucb_score
+                best_action = action
+                best_child = child
+
+        return best_action, best_child
+
+    def ucb_score(self, total_visits, cpuct):
+        u = cpuct * self.prior * (np.sqrt(total_visits) / (1 + self.visit_count))
+        return self.value + u
+
+    def backpropagate(self, value, from_player):
+        self.visit_count += 1
+        # Flip value if the perspective differs
+        if self.current_player != from_player:
+            value = -value
+        self.value_sum += value
+        if self.parent:
+            self.parent.backpropagate(value, from_player)
+
+
+class EnhancedMCTS:
+    def __init__(self, worker_id, inference_queue, result_queue, args):
+        super().__init__()
+        self.inference_queue = inference_queue  # Shared global queue for sending inference requests
+        self.result_queue = result_queue        # Dedicated queue for receiving results
+        self.worker_id = worker_id
+        self.args = args
+
+    def search(self, root_node: Node, next_states_fn, next_legal_moves_fn, num_simulations, cpuct=1.0):
+        leaves = []
+        search_paths = []
+
+        for _ in range(num_simulations):
+            node = root_node
+            path = [node]
+
+            # region SELECTION
+            while node.is_expanded and node.children:
+                _, node = node.select_child(cpuct)
+                path.append(node)
+
+            if result := node.game.check_for_game_end(node.current_player):
+                for n in reversed(path):
+                    n.visit_count += 1
+                    if n.current_player == node.current_player:
+                        n.value_sum += result
+                    else:
+                        n.value_sum += -result
+            else:
+                leaves.append(node)
+                search_paths.append(path)
+            # endregion
+
+        # INFERENCE REQUEST
+        if leaves:
+            # Send leaf states to inference process
+            for node in leaves:
+                self.inference_queue.put([node.game, node.current_player, self.worker_id, self.result_queue])
+
+            # Collect inference results
+            policies, values = [], []
+            for _ in range(len(leaves)):
+                policy, value = self.result_queue.get()
+                policies.append(policy)
+                values.append(value)
+
+            # region EXPANSION + BACKPROP
+            for node, policy, value, path in zip(leaves, policies, values, search_paths):
+                action_priors = {a: policy[a] for a in node.legal_moves}
+                node.expand(action_priors, next_states_fn, next_legal_moves_fn)
+
+                from_player = node.player
+                for n in reversed(path):
+                    n.visit_count += 1
+                    if n.player == from_player:
+                        n.value_sum += value
+                    else:
+                        n.value_sum += -value
+            # endregion
+        return {action: (child.visit_count, child.value) for action, child in root_node.children.items()}
+
+
+class Worker(mp.Process):
+    def __init__(self, worker_id, global_inference_queue, global_sample_queue, episodes_done_queue,
+                 result_queue, stop_event, is_warmup, args):
+        super().__init__()
+        self.current_player = None
+        self.worker_id = worker_id
+        self.game_manager = GameManager()
+        self.global_inference_queue = global_inference_queue
+        self.global_sample_queue = global_sample_queue
+        self.episodes_done_queue = episodes_done_queue
+        self.result_queue = result_queue
+        self.stop_event = stop_event
+        self.is_warmup = is_warmup
+        self.args = args
+
+        # Instantiate MCTS with access to shared queues
+        self.mcts = EnhancedMCTS(self.worker_id, self.global_inference_queue, self.result_queue, self.args)
+
+    def run(self):
+        while not self.stop_event.is_set():
+            game = self.game_manager.reset_board()
+            self.current_player = np.random.choice([-1, 1])
+            episode_step = 0
+            training_samples = []
+
+            while not self.game_manager.has_game_ended(game, self.current_player):
+                root_node = Node(game, self.current_player, self.game_manager.get_valid_moves)
+                search_stats = self.mcts.search(root_node, self.game_manager.get_next_state,
+                                                       self.game_manager.get_valid_moves,
+                                                       self.args.num_mcts_sims, self.args.cpuct)
+
+                action, policy = self.select_action(search_stats, self.game_manager.get_action_size(game),
+                                                    temperature=self.args.temperature)
+
+                # region Symmetries
+                # Add all symmetrical boards to the training samples as they are identical in policy
+                symmetries = self.game_manager.get_symmetries(game, self.current_player, np.copy(policy))
+                for board_sym, policy_sym in symmetries:
+                    # Training Sample: Board Configuration, Current Player, Policy, Phase, Value (which is unknown yet)
+                    training_samples.append([board_sym, self.current_player, game.phase, policy_sym, None])
+                # endregion
+
+                game, self.current_player = self.game_manager.get_next_state(game, self.current_player, action)
+                episode_step += 1
+
+                winner = self.game_manager.has_game_ended(game, self.current_player)
+
+                # If there is a winner the game has end. Return the training samples without the current player property.
+                if winner != 0:
+                    # Board, Phase, Policy, Value
+                    actual_samples = [
+                        (sample[0], sample[2], sample[3], winner * (-1) ** (sample[1] != self.current_player))
+                        for sample in training_samples]
+                    for sample in actual_samples:
+                        self.global_sample_queue.put(sample)
+                    self.episodes_done_queue.put(winner)
+                    break
+
+    def select_action(self, stats, action_size, temperature=1.0):
+        """
+        Selects an action and returns π as a dense array.
+
+        Args:
+            stats: dict of {action: (visit_count, value)}
+            action_size: total number of possible actions in this phase
+            temperature: exploration factor
+
+        Returns:
+            selected_action: int
+            pi: list of floats of size `action_size`
+        """
+        visit_counts = np.zeros(action_size, dtype=np.float32)
+
+        for a, (count, _) in stats.items():
+            visit_counts[a] = count
+
+        if temperature == 0:
+            best_actions = np.argwhere(visit_counts == np.max(visit_counts)).flatten()
+            selected_action = np.random.choice(best_actions)
+            pi = np.zeros_like(visit_counts)
+            pi[selected_action] = 1.0
+            return selected_action, pi.tolist()
+
+        adjusted = visit_counts ** (1.0 / temperature)
+        sum_counts = np.sum(adjusted)
+
+        if sum_counts == 0:
+            # Rare edge case: all zero visits
+            policy = np.ones(action_size) / action_size
+        else:
+            policy = adjusted / sum_counts
+
+        selected_action = np.random.choice(np.arange(action_size), p=policy)
+        return selected_action, policy.tolist()
+
+
 
 
 class MCTS:

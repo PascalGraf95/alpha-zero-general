@@ -74,7 +74,7 @@ class NNetWrapper:
                                        y=[target_pis_phase_one_two, target_vs_phase_one_two],
                                        batch_size=args.batch_size, epochs=1, verbose=2)
 
-    def predict(self, game, board, dummy_values=-10):
+    def predict(self, game, board):
         """
         board: np array with board
         """
@@ -86,9 +86,46 @@ class NNetWrapper:
             pi, v = self.network.pi1_model.predict(board, verbose=False)
         else:
             pi, v = self.network.pi2_model.predict(board, verbose=False)
-        # if dummy_values != -10:
-        #    return pi[0], [dummy_values]
         return pi[0], v[0][0]
+
+    def predict_batch(self, games, boards):
+        """
+        Args:
+            boards: list of np.array canonical boards (C, H, W)
+            games: list of corresponding game instances (for phase info)
+
+        Returns:
+            policies: list of predicted policies
+            values: list of predicted values
+        """
+        assert len(boards) == len(games), "Mismatch between number of boards and games"
+
+        # Transpose to NHWC (batch, H, W, C)
+        boards_np = np.array(boards)
+        boards_np = np.transpose(boards_np, (0, 2, 3, 1))
+
+        # Separate by phase
+        idx_phase_0 = [i for i, g in enumerate(games) if g.phase == 0]
+        idx_phase_1 = [i for i, g in enumerate(games) if g.phase != 0]
+
+        policies = [None] * len(boards)
+        values = [None] * len(boards)
+
+        if idx_phase_0:
+            boards_0 = boards_np[idx_phase_0]
+            pi0, v0 = self.network.pi1_model.predict(boards_0, verbose=False)
+            for i, pi, val in zip(idx_phase_0, pi0, v0):
+                policies[i] = pi
+                values[i] = val[0]
+
+        if idx_phase_1:
+            boards_1 = boards_np[idx_phase_1]
+            pi1, v1 = self.network.pi2_model.predict(boards_1, verbose=False)
+            for i, pi, val in zip(idx_phase_1, pi1, v1):
+                policies[i] = pi
+                values[i] = val[0]
+
+        return policies, values
 
     def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
         # change extension
