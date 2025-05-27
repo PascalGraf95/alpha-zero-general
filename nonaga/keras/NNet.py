@@ -102,7 +102,6 @@ class NNetWrapper:
 
         # Transpose to NHWC (batch, H, W, C)
         boards_np = np.array(boards)
-        print(boards_np.shape)
         boards_np = np.transpose(boards_np, (0, 2, 3, 1))
 
         # Separate by phase

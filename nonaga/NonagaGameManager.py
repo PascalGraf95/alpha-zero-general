@@ -44,7 +44,8 @@ class NonagaGameManager:
             all_moves_masked = np.zeros((game.height, game.width))
             for m in legal_moves:
                 all_moves_masked[m[0], m[1]] = 1
-        return all_moves_masked.flatten(), legal_moves
+        legal_moves_indices = np.nonzero(all_moves_masked.flatten())[0]
+        return all_moves_masked.flatten(), legal_moves, legal_moves_indices
 
     def get_symmetries(self, game, player, policy):
         # Copy Original board and policy
@@ -75,9 +76,12 @@ class NonagaGameManager:
                         for i2 in range(6):
                             new_policy[val][game.direction_mapping[i2]] = original_policy_copy[key][i2]
                     else:
-                        new_policy[val] = original_policy_copy[key]
+                        try:
+                            new_policy[val] = original_policy_copy[key]
+                        except TypeError:
+                            print("AHA!!!")
+                            raise Exception
             if not self.is_board_configuration_valid(new_board):
-                print("Invalid State Found.")
                 break
             board_policy_list.append([new_board, new_policy.flatten()])
             original_canonical_board_copy = np.copy(new_board)

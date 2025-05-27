@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 class Node:
     def __init__(self, game: Game, current_player, legal_moves_fn, parent=None, prior=0.0):
         self.game = game
-        self.legal_moves, _ = legal_moves_fn(game, current_player)
+        _, _, self.legal_moves = legal_moves_fn(game, current_player)
         self.parent = parent
         self.prior = prior
         self.current_player = current_player  # Store the player to move at this node
@@ -37,9 +37,8 @@ class Node:
     def expand(self, action_priors, next_states_fn, legal_moves_fn):
         self.is_expanded = True
         for action, prior in action_priors.items():
-            next_game, next_player = next_states_fn(self.game, action)
-            next_legal_moves = legal_moves_fn(next_game, next_player)
-            self.children[action] = Node(next_game, next_player, next_legal_moves, parent=self, prior=prior)
+            next_game, next_player = next_states_fn(self.game, self.current_player, action)
+            self.children[action] = Node(next_game, next_player, legal_moves_fn, parent=self, prior=prior)
 
     def select_child(self, cpuct=1.0):
         best_score = -float("inf")
@@ -72,12 +71,13 @@ class Node:
 
 
 class EnhancedMCTS:
-    def __init__(self, worker_id, inference_queue, result_queue, args):
+    def __init__(self, worker_id, inference_queue, result_queue, mcts_owner, args):
         super().__init__()
         self.inference_queue = inference_queue  # Shared global queue for sending inference requests
         self.result_queue = result_queue        # Dedicated queue for receiving results
         self.worker_id = worker_id
         self.args = args
+        self.mcts_owner = mcts_owner
 
     def search(self, root_node: Node, next_states_fn, next_legal_moves_fn, num_simulations, cpuct=1.0):
         leaves = []
@@ -103,7 +103,7 @@ class EnhancedMCTS:
         if leaves:
             # Send leaf states to inference process
             for node in leaves:
-                self.inference_queue.put([node.game, node.current_player, self.worker_id])
+                self.inference_queue.put([node.game, node.current_player, self.worker_id, self.mcts_owner])
 
             # Collect inference results
             policies, values = [], []
@@ -125,7 +125,7 @@ class EnhancedMCTS:
 
 class Worker(mp.Process):
     def __init__(self, worker_id, global_inference_queue, global_sample_queue, episodes_done_queue,
-                 result_queue, stop_event, is_warmup, args):
+                 result_queue_player, stop_event, is_training, args, result_queue_opponent=None):
         super().__init__()
         self.current_player = None
         self.worker_id = worker_id
@@ -133,13 +133,20 @@ class Worker(mp.Process):
         self.global_inference_queue = global_inference_queue
         self.global_sample_queue = global_sample_queue
         self.episodes_done_queue = episodes_done_queue
-        self.result_queue = result_queue
+        self.result_queue_player = result_queue_player
+        self.result_queue_opponent = result_queue_opponent
         self.stop_event = stop_event
-        self.is_warmup = is_warmup
+        self.is_training = is_training
         self.args = args
 
         # Instantiate MCTS with access to shared queues
-        self.mcts = EnhancedMCTS(self.worker_id, self.global_inference_queue, self.result_queue, self.args)
+        self.mcts_player = EnhancedMCTS(self.worker_id, self.global_inference_queue,
+                                        self.result_queue_player, "player", self.args)
+        if result_queue_opponent:
+            self.mcts_opponent = EnhancedMCTS(self.worker_id, self.global_inference_queue,
+                                              self.result_queue_opponent, "opponent", self.args)
+        else:
+            self.mcts_opponent = None
 
     def run(self):
         while not self.stop_event.is_set():
@@ -150,44 +157,51 @@ class Worker(mp.Process):
 
             while not self.game_manager.has_game_ended(game, self.current_player):
                 root_node = Node(game, self.current_player, self.game_manager.get_valid_moves)
-                search_stats = self.mcts.search(root_node, self.game_manager.get_next_state,
-                                                       self.game_manager.get_valid_moves,
-                                                       self.args.num_mcts_sims, self.args.cpuct)
+                if self.current_player == 1 or not self.mcts_opponent:
+                    search_stats = self.mcts_player.search(root_node, self.game_manager.get_next_state,
+                                                           self.game_manager.get_valid_moves,
+                                                           self.args.num_mcts_sims, self.args.cpuct)
+                else:
+                    search_stats = self.mcts_opponent.search(root_node, self.game_manager.get_next_state,
+                                                           self.game_manager.get_valid_moves,
+                                                           self.args.num_mcts_sims, self.args.cpuct)
+
+                if episode_step < self.args.random_policy_threshold and not self.mcts_opponent:
+                    temperature = self.args.temperature
+                else:
+                    temperature = 0
 
                 action, policy = self.select_action(search_stats, self.game_manager.get_action_size(game),
-                                                    temperature=self.args.temperature)
+                                                    temperature=temperature)
 
-                # region Symmetries
-                # Add all symmetrical boards to the training samples as they are identical in policy
-                symmetries = self.game_manager.get_symmetries(game, self.current_player, np.copy(policy))
-                for board_sym, policy_sym in symmetries:
-                    # Training Sample: Board Configuration, Current Player, Policy, Phase, Value (which is unknown yet)
-                    # training_samples.append([board_sym, self.current_player, game.phase, policy_sym, None])
-                    training_samples.append([board_sym, game.phase, policy_sym, None, self.current_player])
-                # endregion
+                if self.is_training:
+                    # region Symmetries
+                    # Add all symmetrical boards to the training samples as they are identical in policy
+                    symmetries = self.game_manager.get_symmetries(game, self.current_player, np.copy(policy))
+                    for board_sym, policy_sym in symmetries:
+                        # Training Sample: Board Configuration, Current Player, Policy, Phase, Value (which is unknown yet)
+                        # training_samples.append([board_sym, self.current_player, game.phase, policy_sym, None])
+                        training_samples.append([board_sym, game.phase, policy_sym, None, self.current_player])
+                    # endregion
 
                 game, self.current_player = self.game_manager.get_next_state(game, self.current_player, action)
                 episode_step += 1
+                # if not self.is_training:
+                self.game_manager.draw_board_cv2(game, self.current_player, turn_number=episode_step%3+1)
 
                 winner = self.game_manager.has_game_ended(game, self.current_player)
 
                 # If there is a winner the game has end. Return the training samples without the current player property.
-                if winner != 0:
+                if winner != 0 or episode_step > 300:
                     # actual_samples = []
                     # Board, Phase, Policy, Value
                     for board, phase, policy, _, player in training_samples:
                         value = winner if player == self.current_player else -winner
                         sample = (board, phase, policy, value)
                         self.global_sample_queue.put(sample)
-                    """
-                    actual_samples = [
-                        (sample[0], sample[2], sample[3], winner * (-1) ** (sample[1] != self.current_player))
-                        for sample in training_samples]
-
-                    for sample in actual_samples:
-                        self.global_sample_queue.put(sample)
-                    """
-                    self.episodes_done_queue.put(winner)
+                    if not self.is_training:
+                        print(f"WINNER: {winner}, Current Player: {self.current_player}")
+                    self.episodes_done_queue.put(self.current_player)
                     break
 
     def select_action(self, stats, action_size, temperature=1.0):
@@ -226,8 +240,6 @@ class Worker(mp.Process):
 
         selected_action = np.random.choice(np.arange(action_size), p=policy)
         return selected_action, policy.tolist()
-
-
 
 
 class MCTS:
