@@ -22,6 +22,7 @@ class Node:
         self.parent = parent
         self.prior = prior
         self.current_player = current_player  # Store the player to move at this node
+        self.id = np.random.randint(10000000)
 
         self.children = {}  # action -> Node
         self.visit_count = 0
@@ -103,12 +104,13 @@ class EnhancedMCTS:
         if leaves:
             # Send leaf states to inference process
             for node in leaves:
-                self.inference_queue.put([node.game, node.current_player, self.worker_id, self.mcts_owner])
+                self.inference_queue.put([node.game, node.current_player, self.worker_id, self.mcts_owner, node.id])
 
             # Collect inference results
             policies, values = [], []
+
             for _ in range(len(leaves)):
-                policy, value = self.result_queue.get()
+                policy, value, id = self.result_queue.get()
                 policies.append(policy)
                 values.append(value)
 
@@ -171,7 +173,8 @@ class Worker(mp.Process):
                 else:
                     temperature = 0
 
-                action, policy = self.select_action(search_stats, self.game_manager.get_action_size(game),
+                _, _, legal_moves = self.game_manager.get_valid_moves(game, self.current_player)
+                action, policy = self.select_action(search_stats, self.game_manager.get_action_size(game), legal_moves,
                                                     temperature=temperature)
 
                 if self.is_training:
@@ -186,8 +189,6 @@ class Worker(mp.Process):
 
                 game, self.current_player = self.game_manager.get_next_state(game, self.current_player, action)
                 episode_step += 1
-                # if not self.is_training:
-                self.game_manager.draw_board_cv2(game, self.current_player, turn_number=episode_step%3+1)
 
                 winner = self.game_manager.has_game_ended(game, self.current_player)
 
@@ -199,18 +200,20 @@ class Worker(mp.Process):
                         value = winner if player == self.current_player else -winner
                         sample = (board, phase, policy, value)
                         self.global_sample_queue.put(sample)
-                    if not self.is_training:
-                        print(f"WINNER: {winner}, Current Player: {self.current_player}")
+                    # if not self.is_training:
+                    # print(f"WINNER: {winner}, Current Player: {self.current_player}")
                     self.episodes_done_queue.put(self.current_player)
+                    # self.game_manager.draw_board_cv2(game, self.current_player, turn_number=episode_step % 3 + 1)
                     break
 
-    def select_action(self, stats, action_size, temperature=1.0):
+    def select_action(self, stats, action_size, legal_moves, temperature=1.0):
         """
-        Selects an action and returns π as a dense array.
+        Selects an action and returns π as a dense array over all actions, masked by legal ones.
 
         Args:
             stats: dict of {action: (visit_count, value)}
-            action_size: total number of possible actions in this phase
+            action_size: total number of possible actions
+            legal_moves: list of legal action indices
             temperature: exploration factor
 
         Returns:
@@ -219,27 +222,39 @@ class Worker(mp.Process):
         """
         visit_counts = np.zeros(action_size, dtype=np.float32)
 
+        # Fill visit counts only for explored children (i.e., legal moves with visits)
         for a, (count, _) in stats.items():
             visit_counts[a] = count
 
         if temperature == 0:
-            best_actions = np.argwhere(visit_counts == np.max(visit_counts)).flatten()
+            # Pick among best visited legal actions
+            legal_visits = [(a, visit_counts[a]) for a in legal_moves]
+            max_visit = max(v for _, v in legal_visits)
+            best_actions = [a for a, v in legal_visits if v == max_visit]
             selected_action = np.random.choice(best_actions)
-            pi = np.zeros_like(visit_counts)
+
+            pi = np.zeros(action_size, dtype=np.float32)
             pi[selected_action] = 1.0
             return selected_action, pi.tolist()
 
+        # Softmax with temperature over legal moves
         adjusted = visit_counts ** (1.0 / temperature)
-        sum_counts = np.sum(adjusted)
+        masked = np.zeros_like(adjusted)
 
-        if sum_counts == 0:
-            # Rare edge case: all zero visits
-            policy = np.ones(action_size) / action_size
+        for a in legal_moves:
+            masked[a] = adjusted[a]
+
+        sum_masked = np.sum(masked)
+        if sum_masked == 0:
+            # Fallback: uniform over legal moves
+            for a in legal_moves:
+                masked[a] = 1.0
+            masked /= np.sum(masked)
         else:
-            policy = adjusted / sum_counts
+            masked /= sum_masked
 
-        selected_action = np.random.choice(np.arange(action_size), p=policy)
-        return selected_action, policy.tolist()
+        selected_action = np.random.choice(np.arange(action_size), p=masked)
+        return selected_action, masked.tolist()
 
 
 class MCTS:

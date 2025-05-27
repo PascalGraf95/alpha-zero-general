@@ -23,12 +23,12 @@ args = dotdict({
     'num_mcts_sims': 30,            # Number of moves for MCTS to improve the network estimation.
     'arena_matches': 20,            # Number of games to play during arena play to determine.
     'cpuct': 1.2,
-    'num_workers': 7,
+    'num_workers': 8,
     'temperature': 1,
 
     'checkpoint': './nonaga/models',
-    'load_model': False,
-    'load_folder_file': ('./nonaga/models/', 'best.weights.h5', 'checkpoint_samples_2.pth.tar'),
+    'load_model': True,
+    'load_folder_file': ('./nonaga/models/', 'best.weights.h5', 'checkpoint_samples_3.pth.tar'),
     'max_history_length': 20,
     'mode': 'training'
 

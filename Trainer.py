@@ -33,7 +33,7 @@ class EnhancedTrainer:
         self.player_result_queues = None
         self.global_inference_queue = None
         self.stop_agents_event = None
-        self.workers = None
+        self.workers = []
         self.game_manager = game_manager
         self.player_network = network
         self.opponent_network = self.player_network.__class__(self.game_manager)  # the competitor network
@@ -84,6 +84,9 @@ class EnhancedTrainer:
                     item = self.global_sample_queue.get(timeout=1)
                     training_samples.append(item)
                 except queue.Empty:
+                    break
+                except AttributeError:
+                    print("First training iteration.")
                     break
 
             self.training_samples_history.append(training_samples)
@@ -188,18 +191,18 @@ class EnhancedTrainer:
                 try:
                     # Expecting: (game, current_player, worker_id, target="player"/"opponent")
                     item = self.global_inference_queue.get(timeout=wait_time)
-                    game, current_player, worker_id, target = item
+                    game, current_player, worker_id, target, node_id = item
 
                     canonical_board = self.game_manager.get_canonical_form(game, current_player)
 
                     if target == "player":
                         batch_boards_player.append(canonical_board)
                         batch_games_player.append(game)
-                        metadata_player.append(worker_id)
+                        metadata_player.append((worker_id, node_id))
                     elif target == "opponent":
                         batch_boards_opponent.append(canonical_board)
                         batch_games_opponent.append(game)
-                        metadata_opponent.append(worker_id)
+                        metadata_opponent.append((worker_id, node_id))
                     else:
                         log.error(f"Unknown inference target: {target}")
                 except queue.Empty:
@@ -208,14 +211,14 @@ class EnhancedTrainer:
             # Process player network
             if batch_boards_player:
                 policies, values = self.player_network.predict_batch(batch_boards_player, batch_games_player)
-                for worker_id, policy, value in zip(metadata_player, policies, values):
-                    self.player_result_queues[worker_id].put((policy, value))
+                for (worker_id, node_id), policy, value in zip(metadata_player, policies, values):
+                    self.player_result_queues[worker_id].put((policy, value, node_id))
 
             # Process opponent network
             if mode == "arena" and batch_boards_opponent:
                 policies, values = self.opponent_network.predict_batch(batch_boards_opponent, batch_games_opponent)
-                for worker_id, policy, value in zip(metadata_opponent, policies, values):
-                    self.opponent_result_queues[worker_id].put((policy, value))
+                for (worker_id, node_id), policy, value in zip(metadata_opponent, policies, values):
+                    self.opponent_result_queues[worker_id].put((policy, value, node_id))
 
     def generate_training_workers(self):
         self.stop_agents_event = mp.Event()
