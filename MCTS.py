@@ -22,7 +22,6 @@ class Node:
         self.parent = parent
         self.prior = prior
         self.current_player = current_player  # Store the player to move at this node
-        self.id = np.random.randint(10000000)
 
         self.children = {}  # action -> Node
         self.visit_count = 0
@@ -104,13 +103,13 @@ class EnhancedMCTS:
         if leaves:
             # Send leaf states to inference process
             for node in leaves:
-                self.inference_queue.put([node.game, node.current_player, self.worker_id, self.mcts_owner, node.id])
+                self.inference_queue.put([node.game, node.current_player, self.worker_id, self.mcts_owner])
 
             # Collect inference results
             policies, values = [], []
 
             for _ in range(len(leaves)):
-                policy, value, id = self.result_queue.get()
+                policy, value = self.result_queue.get()
                 policies.append(policy)
                 values.append(value)
 
@@ -144,7 +143,7 @@ class Worker(mp.Process):
         # Instantiate MCTS with access to shared queues
         self.mcts_player = EnhancedMCTS(self.worker_id, self.global_inference_queue,
                                         self.result_queue_player, "player", self.args)
-        if result_queue_opponent:
+        if not self.is_training:
             self.mcts_opponent = EnhancedMCTS(self.worker_id, self.global_inference_queue,
                                               self.result_queue_opponent, "opponent", self.args)
         else:
@@ -157,9 +156,12 @@ class Worker(mp.Process):
             episode_step = 0
             training_samples = []
 
+            if self.args.mode == "self-play":
+                self.game_manager.draw_board_cv2(game, self.current_player, turn_number=0, save=True)
+
             while not self.game_manager.has_game_ended(game, self.current_player):
                 root_node = Node(game, self.current_player, self.game_manager.get_valid_moves)
-                if self.current_player == 1 or not self.mcts_opponent:
+                if self.current_player == 1 or self.is_training:
                     search_stats = self.mcts_player.search(root_node, self.game_manager.get_next_state,
                                                            self.game_manager.get_valid_moves,
                                                            self.args.num_mcts_sims, self.args.cpuct)
@@ -168,7 +170,7 @@ class Worker(mp.Process):
                                                            self.game_manager.get_valid_moves,
                                                            self.args.num_mcts_sims, self.args.cpuct)
 
-                if episode_step < self.args.random_policy_threshold and not self.mcts_opponent:
+                if episode_step < self.args.random_policy_threshold and self.is_training:
                     temperature = self.args.temperature
                 else:
                     temperature = 0
@@ -189,6 +191,10 @@ class Worker(mp.Process):
 
                 game, self.current_player = self.game_manager.get_next_state(game, self.current_player, action)
                 episode_step += 1
+
+                if self.args.mode == "self-play" and game.phase == 0:
+                    self.game_manager.draw_board_cv2(game, self.current_player, turn_number=int(episode_step/3), save=True)
+
 
                 winner = self.game_manager.has_game_ended(game, self.current_player)
 

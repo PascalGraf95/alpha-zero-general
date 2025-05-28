@@ -23,12 +23,12 @@ args = dotdict({
     'num_mcts_sims': 30,            # Number of moves for MCTS to improve the network estimation.
     'arena_matches': 20,            # Number of games to play during arena play to determine.
     'cpuct': 1.2,
-    'num_workers': 8,
+    'num_workers': 6,
     'temperature': 1,
 
     'checkpoint': './nonaga/models',
     'load_model': True,
-    'load_folder_file': ('./nonaga/models/', 'best.weights.h5', 'checkpoint_samples_3.pth.tar'),
+    'load_folder_file': ('./nonaga/models/', 'best.weights.h5', 'checkpoint_samples_15.pth.tar', 'best.weights.h5'),
     'max_history_length': 20,
     'mode': 'training'
 
@@ -40,18 +40,18 @@ def main():
     game_manager = GameManager()
 
     log.info('Loading %s...', NeuralNetwork.__name__)
-    network = NeuralNetwork(game_manager)
+    player_network = NeuralNetwork(game_manager)
 
     if args.load_model:
         log.info('Loading checkpoint "%s/%s"...', args.load_folder_file[0], args.load_folder_file[1])
-        network.load_checkpoint(args.load_folder_file[0], args.load_folder_file[1])
+        player_network.load_checkpoint(args.load_folder_file[0], args.load_folder_file[1])
     else:
         log.warning('Not loading a checkpoint!')
 
     log.info('Loading the Trainer...')
-    trainer = EnhancedTrainer(game_manager, network, args)
 
     if args.mode == "training":
+        trainer = EnhancedTrainer(game_manager, player_network, None, args)
         if args.load_model:
             log.info("Loading 'trainExamples' from file...")
             trainer.load_training_samples()
@@ -60,7 +60,10 @@ def main():
         trainer.learn()
 
     elif args.mode == "self-play":
-        trainer.play_games(stochastic_policy=True)
+        opponent_network = NeuralNetwork(game_manager)
+        opponent_network.load_checkpoint(args.load_folder_file[0], args.load_folder_file[3])
+        trainer = EnhancedTrainer(game_manager, player_network, opponent_network, args)
+        trainer.play_games()
 
 
 

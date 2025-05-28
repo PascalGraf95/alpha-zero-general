@@ -26,7 +26,7 @@ import tensorflow as tf
 log = logging.getLogger(__name__)
 
 class EnhancedTrainer:
-    def __init__(self, game_manager: GameManager, network: Network, args):
+    def __init__(self, game_manager: GameManager, player_network: Network, opponent_network: Network, args):
         self.opponent_result_queues = None
         self.inference_thread = None
         self.global_sample_queue = None
@@ -35,8 +35,11 @@ class EnhancedTrainer:
         self.stop_agents_event = None
         self.workers = []
         self.game_manager = game_manager
-        self.player_network = network
-        self.opponent_network = self.player_network.__class__(self.game_manager)  # the competitor network
+        self.player_network = player_network
+        if opponent_network:
+            self.opponent_network = opponent_network
+        else:
+            self.opponent_network = self.player_network.__class__(self.game_manager)  # the competitor network
         self.args = args
         self.training_samples_history = []
         self.skip_first_step_self_play = False
@@ -170,6 +173,42 @@ class EnhancedTrainer:
 
             self.current_training_iteration += 1
 
+    def play_games(self):
+        while True:
+            log.info('------Play Games - Iteration {:03d}------'.format(self.current_training_iteration))
+
+            # 1. Generate Playing Worker
+            self.generate_pit_workers()
+
+
+            # 2. Start Processing Leaf Nodes in parallel from the Queue that is filled by the workers
+            self.inference_thread = Thread(target=self.process_inference_queue, args=("arena",))
+            self.inference_thread.daemon = True
+            self.inference_thread.start()
+
+            # 3. Wait until enough episodes have been played
+            episodes_done = 0
+            wins, losses, draws = 0, 0, 0
+            with tqdm(total=100, desc="Episodes played", leave=False) as pbar:
+                while episodes_done < 100:
+                    try:
+                        winner = self.episodes_done_queue.get(timeout=2)
+                        pbar.update(1)
+                        break
+                    except queue.Empty:
+                        continue
+
+            self.stop_agents_event.set()
+            self.inference_thread.do_run = False
+
+            for worker in self.workers:
+                worker.kill()
+
+
+            # endregion
+
+            self.current_training_iteration += 1
+
     def process_inference_queue(self, mode="training"):
         log.info(f"Starting inference processing loop in {mode} mode!")
         batch_size = self.args.inference_batch_size
@@ -191,18 +230,18 @@ class EnhancedTrainer:
                 try:
                     # Expecting: (game, current_player, worker_id, target="player"/"opponent")
                     item = self.global_inference_queue.get(timeout=wait_time)
-                    game, current_player, worker_id, target, node_id = item
+                    game, current_player, worker_id, target = item
 
                     canonical_board = self.game_manager.get_canonical_form(game, current_player)
 
                     if target == "player":
                         batch_boards_player.append(canonical_board)
                         batch_games_player.append(game)
-                        metadata_player.append((worker_id, node_id))
+                        metadata_player.append(worker_id)
                     elif target == "opponent":
                         batch_boards_opponent.append(canonical_board)
                         batch_games_opponent.append(game)
-                        metadata_opponent.append((worker_id, node_id))
+                        metadata_opponent.append(worker_id)
                     else:
                         log.error(f"Unknown inference target: {target}")
                 except queue.Empty:
@@ -211,14 +250,14 @@ class EnhancedTrainer:
             # Process player network
             if batch_boards_player:
                 policies, values = self.player_network.predict_batch(batch_boards_player, batch_games_player)
-                for (worker_id, node_id), policy, value in zip(metadata_player, policies, values):
-                    self.player_result_queues[worker_id].put((policy, value, node_id))
+                for worker_id, policy, value in zip(metadata_player, policies, values):
+                    self.player_result_queues[worker_id].put((policy, value))
 
             # Process opponent network
             if mode == "arena" and batch_boards_opponent:
                 policies, values = self.opponent_network.predict_batch(batch_boards_opponent, batch_games_opponent)
-                for (worker_id, node_id), policy, value in zip(metadata_opponent, policies, values):
-                    self.opponent_result_queues[worker_id].put((policy, value, node_id))
+                for worker_id, policy, value in zip(metadata_opponent, policies, values):
+                    self.opponent_result_queues[worker_id].put((policy, value))
 
     def generate_training_workers(self):
         self.stop_agents_event = mp.Event()
@@ -255,7 +294,6 @@ class EnhancedTrainer:
             agent.daemon = True
             agent.start()
 
-
     def generate_pit_workers(self):
         self.stop_agents_event = mp.Event()
 
@@ -271,7 +309,8 @@ class EnhancedTrainer:
 
         self.workers = []
 
-        for i in range(self.args.num_workers):
+        num_workers = self.args.num_workers if self.args.mode == "training" else 1
+        for i in range(num_workers):
             # Each worker gets its own result queue
             player_result_queue = mp.Queue()
             opponent_result_queue = mp.Queue()
