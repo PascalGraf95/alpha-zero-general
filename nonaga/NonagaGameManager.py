@@ -211,7 +211,7 @@ class NonagaGameManager:
             print("|")
         print("---------------------------------------------------")
 
-    def draw_board_cv2(self, game: Game, current_player: int, scale: int = 40, turn_number: int = 0, save: bool = False):
+    def draw_board_cv2(self, game: Game, current_player: int, scale: int = 40, turn_number: int = 0, save: bool = False, delete_old: bool = False):
         """
         Draws the board using OpenCV, showing last move by comparing with previous board.
         Highlights moved tiles and pieces.
@@ -291,7 +291,7 @@ class NonagaGameManager:
         cv2.putText(img, turn_info, (10, img.shape[0] - 10), font, 0.5, (50, 50, 50), 1, cv2.LINE_AA)
 
         if save:
-            if turn_number == 0:
+            if turn_number == 0 and delete_old:
                 for file in os.listdir("last_game"):
                     os.remove(os.path.join("last_game", file))
             cv2.imwrite(os.path.join("last_game", "NonagaBoard_turn{:04d}.png".format(int(turn_number))), img)

@@ -1,3 +1,6 @@
+from colorama import Fore, Back, Style, init
+init(autoreset=True)
+
 class AverageMeter(object):
     """From https://github.com/pytorch/examples/blob/master/imagenet/main.py"""
 
@@ -23,3 +26,16 @@ class dotdict(dict):
             return self[name]
         except KeyError:
             raise AttributeError(f"{name} not found")
+
+def log_info(msg):
+    print(Fore.YELLOW + "[INFO] " + Style.RESET_ALL + msg)
+
+def log_success(msg):
+    print(Fore.GREEN + "[SUCCESS] " + Style.RESET_ALL + msg)
+
+def log_warning(msg):
+    # Orange isn't available, so we simulate it with a combination
+    print(Fore.LIGHTRED_EX + "[WARNING] " + Style.RESET_ALL + msg)
+
+def log_error(msg):
+    print(Fore.RED + "[ERROR] " + Style.RESET_ALL + msg)

@@ -53,7 +53,7 @@ class NonagaNet:
         self.pi2 = Dense(self.board_width * self.board_height, activation="softmax", name="pi2")(x)
 
         # --- Value Head ---
-        v = Dense(128, activation="relu")(x)
+        v = Dense(256, activation="relu")(x)
         v = Dropout(args.dropout)(v)
         self.v = Dense(1, activation='tanh', name='v')(v)
 
@@ -63,6 +63,7 @@ class NonagaNet:
         self.pi2_model = Model(inputs=self.input_boards, outputs=[self.pi2, self.v])
         self.pi2_model.compile(loss=['categorical_crossentropy', 'mse'], optimizer=Adam(args.lr))
         self.model = Model(inputs=self.input_boards, outputs=[self.pi1, self.pi2, self.v])
+        self.model.summary()
 
         # self.model.summary()
 

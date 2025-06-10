@@ -1,5 +1,6 @@
 import logging
 import math
+import queue
 import random
 
 import numpy as np
@@ -9,6 +10,7 @@ import multiprocessing as mp
 from nonaga.NonagaLogic import Game
 from nonaga.NonagaGameManager import NonagaGameManager as GameManager
 from nonaga.keras.NNet import NNetWrapper as Network
+from utils import *
 
 EPS = 1e-8
 
@@ -16,6 +18,8 @@ log = logging.getLogger(__name__)
 
 
 class Node:
+    next_inference_id = 0
+
     def __init__(self, game: Game, current_player, legal_moves_fn, parent=None, prior=0.0):
         self.game = game
         _, _, self.legal_moves = legal_moves_fn(game, current_player)
@@ -28,14 +32,53 @@ class Node:
         self.value_sum = 0.0
         self.is_expanded = False
 
+        self.virtual_loss = 0
+        self.max_children = 3
+
+        self.inference_id = Node.next_inference_id
+        Node.next_inference_id += 1
+
     @property
     def value(self):
         if self.visit_count == 0:
             return 0
         return self.value_sum / self.visit_count
 
-    def expand(self, action_priors, next_states_fn, legal_moves_fn):
+    def add_virtual_loss(self, loss=1):
+        self.virtual_loss += loss
+        if self.parent:
+            self.parent.add_virtual_loss(loss)
+
+    def remove_virtual_loss(self, loss=1):
+        self.virtual_loss -= loss
+        if self.parent:
+            self.parent.remove_virtual_loss(loss)
+
+    def apply_dirichlet_noise(self, priors, legal_moves, alpha=0.3, epsilon=0.25):
+        noise = np.random.dirichlet([alpha] * len(legal_moves))
+        for i, a in enumerate(legal_moves):
+            priors[a] = (1 - epsilon) * priors[a] + epsilon * noise[i]
+        return priors
+
+    def expand_progressive_widening(self, action_priors, next_states_fn, legal_moves_fn, c_pw=2):
         self.is_expanded = True
+        sorted_actions = sorted(action_priors.items(), key=lambda x: -x[1])  # Greedy
+        # Limit how many children are expanded based on visit count
+        max_to_expand = min(len(sorted_actions), self.max_children)
+
+        for action, prior in sorted_actions[:max_to_expand]:
+            next_game, next_player = next_states_fn(self.game, self.current_player, action)
+            self.children[action] = Node(next_game, next_player, legal_moves_fn, parent=self, prior=prior)
+
+        # Prepare for future expansion
+        self.max_children = max(1, int(c_pw * np.sqrt(self.visit_count + 1)))
+
+    def expand(self, action_priors, next_states_fn, legal_moves_fn, use_dirichlet_noise=False, alpha=0.3, epsilon=0.25):
+        self.is_expanded = True
+
+        if use_dirichlet_noise:
+            action_priors = self.apply_dirichlet_noise(action_priors, list(action_priors.keys()), alpha, epsilon)
+
         for action, prior in action_priors.items():
             next_game, next_player = next_states_fn(self.game, self.current_player, action)
             self.children[action] = Node(next_game, next_player, legal_moves_fn, parent=self, prior=prior)
@@ -57,8 +100,10 @@ class Node:
         return best_action, best_child
 
     def ucb_score(self, total_visits, cpuct):
-        u = cpuct * self.prior * (np.sqrt(total_visits) / (1 + self.visit_count))
-        return self.value + u
+        adjusted_visits = self.visit_count + self.virtual_loss
+        u = cpuct * self.prior * (np.sqrt(total_visits) / (1 + adjusted_visits))
+        ucb_score = self.value + u
+        return ucb_score
 
     def backpropagate(self, value, from_player):
         self.visit_count += 1
@@ -71,56 +116,110 @@ class Node:
 
 
 class EnhancedMCTS:
-    def __init__(self, worker_id, inference_queue, result_queue, mcts_owner, args):
+    def __init__(self, worker_id, inference_queue, result_queue, mcts_owner, args, is_training=True):
         super().__init__()
         self.inference_queue = inference_queue  # Shared global queue for sending inference requests
         self.result_queue = result_queue        # Dedicated queue for receiving results
         self.worker_id = worker_id
         self.args = args
         self.mcts_owner = mcts_owner
+        self.is_training = is_training
 
-    def search(self, root_node: Node, next_states_fn, next_legal_moves_fn, num_simulations, cpuct=1.0):
-        leaves = []
-        search_paths = []
+    def search(self, root_node: Node, next_states_fn, next_legal_moves_fn, num_simulations, cpuct=1.0, batch_size=4):
+        # EXPAND ROOT if not already
+        if not root_node.is_expanded:
+            # Send root to inference immediately
+            self.inference_queue.put([root_node.game, root_node.current_player, self.worker_id, self.mcts_owner, root_node.inference_id])
+            while True:
+                policy, value, inference_id = self.result_queue.get()
+                if inference_id == root_node.inference_id:
+                    action_priors = {a: policy[a] for a in root_node.legal_moves}
+                    # Apply Dirichlet noise only at root
+                    root_node.expand(action_priors, next_states_fn, next_legal_moves_fn,
+                                     use_dirichlet_noise=self.is_training)
+                    root_node.backpropagate(value, root_node.current_player)
+                    break
 
-        for _ in range(num_simulations):
-            node = root_node
-            path = [node]
+        sims_remaining = num_simulations
 
-            # region SELECTION
-            while node.is_expanded and node.children:
-                _, node = node.select_child(cpuct)
-                path.append(node)
+        while sims_remaining > 0:
+            batch = min(batch_size, sims_remaining)
+            sims_remaining -= batch
 
-            if result := node.game.check_for_game_end(node.current_player):
-                path[-1].backpropagate(result, node.current_player)
-            else:
-                leaves.append(node)
-                search_paths.append(path)
-            # endregion
+            #leaves = []
+            #search_paths = []
+            pending_leaves = {}
+            num_leaves = 0
 
-        # INFERENCE REQUEST
-        if leaves:
-            # Send leaf states to inference process
-            for node in leaves:
-                self.inference_queue.put([node.game, node.current_player, self.worker_id, self.mcts_owner])
+            for _ in range(batch):
+                node = root_node
+                path = [node]
 
-            # Collect inference results
-            policies, values = [], []
+                # region SELECTION
+                while node.is_expanded and node.children:
+                    _, node = node.select_child(cpuct)
+                    path.append(node)
 
-            for _ in range(len(leaves)):
-                policy, value = self.result_queue.get()
-                policies.append(policy)
-                values.append(value)
+                if result := node.game.check_for_game_end(node.current_player):
+                    node.backpropagate(result, node.current_player)
+                else:
+                    node.add_virtual_loss()
+                    #leaves.append(node)
+                    #search_paths.append(path)
+                    pending_leaves[node.inference_id] = (node, path)
+                    self.inference_queue.put(
+                        [node.game, node.current_player, self.worker_id, self.mcts_owner, node.inference_id])
+                    num_leaves += 1
+                # endregion
 
-            # region EXPANSION + BACKPROP
-            for node, policy, value, path in zip(leaves, policies, values, search_paths):
+            received = 0
+            while received < num_leaves:
+                try:
+                    policy, value, inference_id = self.result_queue.get(timeout=4)
+                except queue.Empty:
+                    print(f"[Worker {self.worker_id}] Timeout waiting for inference results.")
+                    break
+
+                if inference_id not in pending_leaves:
+                    # Skip stale result from old batch
+                    print("Num Leaves", num_leaves)
+                    print(f"Inference ID: {inference_id}, Pending: {pending_leaves.keys()}")
+                    log_warning("Skipping old queue samples (no corresponding inference id)")
+                    continue
+
+                node, path = pending_leaves.get(inference_id)
+                node.remove_virtual_loss()
                 action_priors = {a: policy[a] for a in node.legal_moves}
                 node.expand(action_priors, next_states_fn, next_legal_moves_fn)
+                node.backpropagate(value, node.current_player)
+                received += 1
 
-                # Backpropagate the value from the neural net
-                path[-1].backpropagate(value, node.current_player)
+            # Clean up stale items from result queue
+            while True:
+                try:
+                    self.result_queue.get_nowait()
+                except queue.Empty:
+                    break
             # endregion
+
+        """
+        # Collect inference results
+        policies, values, ids = [], [], []
+        for _ in range(len(leaves)):
+            policy, value, inference_id = self.result_queue.get()
+            policies.append(policy)
+            values.append(value)
+
+        # region EXPANSION + BACKPROP
+        for node, policy, value, path in zip(leaves, policies, values, search_paths):
+            node.remove_virtual_loss()
+            action_priors = {a: policy[a] for a in node.legal_moves}
+            node.expand(action_priors, next_states_fn, next_legal_moves_fn)
+            # Backpropagate the value from the neural net
+            node.backpropagate(value, node.current_player)
+        # endregion
+        """
+
         return {action: (child.visit_count, child.value) for action, child in root_node.children.items()}
 
 
@@ -142,22 +241,24 @@ class Worker(mp.Process):
 
         # Instantiate MCTS with access to shared queues
         self.mcts_player = EnhancedMCTS(self.worker_id, self.global_inference_queue,
-                                        self.result_queue_player, "player", self.args)
+                                        self.result_queue_player, "player", self.args,
+                                        is_training=self.is_training)
         if not self.is_training:
             self.mcts_opponent = EnhancedMCTS(self.worker_id, self.global_inference_queue,
-                                              self.result_queue_opponent, "opponent", self.args)
+                                              self.result_queue_opponent, "opponent", self.args,
+                                              is_training=self.is_training)
         else:
             self.mcts_opponent = None
 
     def run(self):
         while not self.stop_event.is_set():
-            game = self.game_manager.reset_board()
+            game = self.game_manager.reset_board(scenario=0)
             self.current_player = np.random.choice([-1, 1])
             episode_step = 0
             training_samples = []
 
             if self.args.mode == "self-play":
-                self.game_manager.draw_board_cv2(game, self.current_player, turn_number=0, save=True)
+                self.game_manager.draw_board_cv2(game, self.current_player, turn_number=0, save=True, delete_old=True)
 
             while not self.game_manager.has_game_ended(game, self.current_player):
                 root_node = Node(game, self.current_player, self.game_manager.get_valid_moves)
@@ -173,7 +274,7 @@ class Worker(mp.Process):
                 if episode_step < self.args.random_policy_threshold and self.is_training:
                     temperature = self.args.temperature
                 else:
-                    temperature = 0
+                    temperature = self.args.temperature/10
 
                 _, _, legal_moves = self.game_manager.get_valid_moves(game, self.current_player)
                 action, policy = self.select_action(search_stats, self.game_manager.get_action_size(game), legal_moves,
@@ -195,21 +296,20 @@ class Worker(mp.Process):
                 if self.args.mode == "self-play" and game.phase == 0:
                     self.game_manager.draw_board_cv2(game, self.current_player, turn_number=int(episode_step/3), save=True)
 
-
                 winner = self.game_manager.has_game_ended(game, self.current_player)
 
                 # If there is a winner the game has end. Return the training samples without the current player property.
                 if winner != 0 or episode_step > 300:
+                    if self.args.mode == "self-play":
+                        self.game_manager.draw_board_cv2(game, self.current_player, turn_number=int(episode_step / 3)+1,
+                                                         save=True)
                     # actual_samples = []
                     # Board, Phase, Policy, Value
                     for board, phase, policy, _, player in training_samples:
                         value = winner if player == self.current_player else -winner
                         sample = (board, phase, policy, value)
                         self.global_sample_queue.put(sample)
-                    # if not self.is_training:
-                    # print(f"WINNER: {winner}, Current Player: {self.current_player}")
                     self.episodes_done_queue.put(self.current_player)
-                    # self.game_manager.draw_board_cv2(game, self.current_player, turn_number=episode_step % 3 + 1)
                     break
 
     def select_action(self, stats, action_size, legal_moves, temperature=1.0):

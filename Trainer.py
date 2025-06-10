@@ -8,12 +8,13 @@ from collections import deque
 from pickle import Pickler, Unpickler
 from random import shuffle
 from threading import Thread
+from utils import *
 
 import numpy as np
 from tqdm import tqdm
 
 from Arena import Arena
-from MCTS import MCTS, RandomAgent, Worker
+from MCTS import MCTS, RandomAgent, Worker, Node
 
 from nonaga.NonagaGameManager import NonagaGameManager as GameManager
 from nonaga.keras import NNet as Network
@@ -53,11 +54,10 @@ class EnhancedTrainer:
     def learn(self):
         # The total amount of training iterations (each consisting of multiple episodes played)
         while self.current_training_iteration <= self.args.training_iterations:
-            log.info('------Training Iteration {:03d}------'.format(self.current_training_iteration))
+            # region Training Sample Aqcuesition via Self-Play
+            log_info('------Training Iteration: {:04d}------'.format(self.current_training_iteration))
 
             if not self.skip_first_step_self_play:
-                self.skip_first_step_self_play = False
-
                 # 1. Generate and Start Workers/Agents each containing its own MCTSs
                 self.generate_training_workers()
 
@@ -68,7 +68,7 @@ class EnhancedTrainer:
 
                 # 3. Wait until enough episodes have been played
                 episodes_done = 0
-                with tqdm(total=self.args.num_episodes, desc="Episodes played", leave=False) as pbar:
+                with tqdm(total=self.args.num_episodes, desc="Training Episodes Played", leave=True) as pbar:
                     while episodes_done < self.args.num_episodes:
                         try:
                             self.episodes_done_queue.get(timeout=2)
@@ -80,6 +80,7 @@ class EnhancedTrainer:
                 self.stop_agents_event.set()
                 self.inference_thread.do_run = False
 
+            self.skip_first_step_self_play = False
             # Once enough episodes per iteration have been played, start the actual training function.
             training_samples = []
             while True:
@@ -89,15 +90,15 @@ class EnhancedTrainer:
                 except queue.Empty:
                     break
                 except AttributeError:
-                    print("First training iteration.")
                     break
 
             self.training_samples_history.append(training_samples)
 
             for worker in self.workers:
                 worker.kill()
+            # endregion
 
-            # region Sample History
+            # region Data Preparation and Network Training
             # Ring buffer sample history
             if len(self.training_samples_history) > self.args.max_history_length:
                 log.warning(
@@ -106,7 +107,6 @@ class EnhancedTrainer:
                 self.training_samples_history.pop(0)
             # Backup history to a file
             self.save_training_samples(self.current_training_iteration)
-            # endregion
 
             training_batch = []
             for e in self.training_samples_history:
@@ -119,26 +119,61 @@ class EnhancedTrainer:
 
             # Perform the actual network training
             self.player_network.train(training_batch)
+            #endregion
 
             # region Arena
             # Evaluate the latest network performance in an arena
-            log.info('STARTING ARENA MATCHES')
-            log.info('----------------------')
+            log_info('------Arena Matches Iteration: {:04d}------'.format(self.current_training_iteration))
 
-            log.info('PITTING AGAINST PREVIOUS VERSION')
-
+            # region Self-Play against previous iteration
             # 1. Generate and Start Workers/Agents each containing its own MCTSs
             self.generate_pit_workers()
 
             # 2. Start Processing Leaf Nodes in parallel from the Queue that is filled by the workers
-            self.inference_thread = Thread(target=self.process_inference_queue, args=("arena",))
+            self.inference_thread = Thread(target=self.process_inference_queue, args=("arena", "previous_model"))
+            self.inference_thread.daemon = True
+            self.inference_thread.start()
+
+            # 3. Wait until enough episodes have been played
+            episodes_done = 0
+            wins_prev, losses_prev, draws_prev = 0, 0, 0
+            with tqdm(total=self.args.arena_matches, desc="Arena Matches Played - Prev Model", leave=True) as pbar:
+                while episodes_done < self.args.arena_matches:
+                    try:
+                        winner = self.episodes_done_queue.get(timeout=2)
+                        pbar.update(1)
+                        if winner == 1:
+                            wins_prev += 1
+                        elif winner == -1:
+                            losses_prev += 1
+                        else:
+                            draws_prev += 1
+                        episodes_done += 1
+                    except queue.Empty:
+                        continue
+
+            self.stop_agents_event.set()
+            self.inference_thread.do_run = False
+
+            for worker in self.workers:
+                worker.kill()
+
+            log_info('New/Prev Wins : {:02d} / {:02d}; Draws : {:02d}'.format(wins_prev, losses_prev, draws_prev))
+            # endregion
+
+            # region Self-Play against pure MCTS
+            # 1. Generate and Start Workers/Agents each containing its own MCTSs
+            self.generate_pit_workers()
+
+            # 2. Start Processing Leaf Nodes in parallel from the Queue that is filled by the workers
+            self.inference_thread = Thread(target=self.process_inference_queue, args=("arena", 'mcts'))
             self.inference_thread.daemon = True
             self.inference_thread.start()
 
             # 3. Wait until enough episodes have been played
             episodes_done = 0
             wins, losses, draws = 0, 0, 0
-            with tqdm(total=self.args.arena_matches, desc="Episodes played", leave=False) as pbar:
+            with tqdm(total=self.args.arena_matches, desc="Arena Matches Played - Pure MCTS", leave=True) as pbar:
                 while episodes_done < self.args.arena_matches:
                     try:
                         winner = self.episodes_done_queue.get(timeout=2)
@@ -159,15 +194,15 @@ class EnhancedTrainer:
             for worker in self.workers:
                 worker.kill()
 
-            log.info('NEW/PREV WINS : %d / %d ; DRAWS : %d' % (wins, losses, draws))
+            log_info('New/MCTS Wins : {:02d} / {:02d}; Draws : {:02d}'.format(wins, losses, draws))
+            # endregion
 
-            if wins + losses == 0 or float(wins) / (losses + wins) < self.args.update_threshold:
-                log.info('REJECTING NEW MODEL')
+
+            if wins_prev + losses_prev == 0 or float(wins_prev) / (losses_prev + wins_prev) < self.args.update_threshold:
+                log_warning('Rejecting new model!')
                 self.player_network.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
             else:
-                log.info('ACCEPTING NEW MODEL')
-                self.player_network.save_checkpoint(folder=self.args.checkpoint,
-                                                    filename=self.get_checkpoint_file("", self.current_training_iteration))
+                log_success('Accepting new model!')
                 self.player_network.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
             # endregion
 
@@ -175,7 +210,7 @@ class EnhancedTrainer:
 
     def play_games(self):
         while True:
-            log.info('------Play Games - Iteration {:03d}------'.format(self.current_training_iteration))
+            log.info('------Play Games Iteration: {:04d}------'.format(self.current_training_iteration))
 
             # 1. Generate Playing Worker
             self.generate_pit_workers()
@@ -189,11 +224,12 @@ class EnhancedTrainer:
             # 3. Wait until enough episodes have been played
             episodes_done = 0
             wins, losses, draws = 0, 0, 0
-            with tqdm(total=100, desc="Episodes played", leave=False) as pbar:
+            with tqdm(total=100, desc="Episodes played", leave=True) as pbar:
                 while episodes_done < 100:
                     try:
                         winner = self.episodes_done_queue.get(timeout=2)
                         pbar.update(1)
+                        return
                         break
                     except queue.Empty:
                         continue
@@ -209,9 +245,9 @@ class EnhancedTrainer:
 
             self.current_training_iteration += 1
 
-    def process_inference_queue(self, mode="training"):
-        log.info(f"Starting inference processing loop in {mode} mode!")
-        batch_size = self.args.inference_batch_size
+    def process_inference_queue(self, mode="training", opponent="previous_model"):
+        # log_info(f"Starting inference processing loop in {mode} mode!")
+        batch_size = self.args.inference_batch_size if self.args.mode == "training" else 4
         wait_time = 1  # seconds to wait between checks when queue is empty
 
         t = threading.current_thread()
@@ -226,22 +262,22 @@ class EnhancedTrainer:
 
             start_time = time.time()
             while (len(batch_boards_player) + len(batch_boards_opponent)) < batch_size and (
-                    time.time() - start_time) < 3:
+                    time.time() - start_time) < 1:
                 try:
                     # Expecting: (game, current_player, worker_id, target="player"/"opponent")
                     item = self.global_inference_queue.get(timeout=wait_time)
-                    game, current_player, worker_id, target = item
+                    game, current_player, worker_id, target, inference_id = item
 
                     canonical_board = self.game_manager.get_canonical_form(game, current_player)
 
                     if target == "player":
                         batch_boards_player.append(canonical_board)
                         batch_games_player.append(game)
-                        metadata_player.append(worker_id)
+                        metadata_player.append((worker_id, inference_id))
                     elif target == "opponent":
                         batch_boards_opponent.append(canonical_board)
                         batch_games_opponent.append(game)
-                        metadata_opponent.append(worker_id)
+                        metadata_opponent.append((worker_id, inference_id))
                     else:
                         log.error(f"Unknown inference target: {target}")
                 except queue.Empty:
@@ -250,16 +286,18 @@ class EnhancedTrainer:
             # Process player network
             if batch_boards_player:
                 policies, values = self.player_network.predict_batch(batch_boards_player, batch_games_player)
-                for worker_id, policy, value in zip(metadata_player, policies, values):
-                    self.player_result_queues[worker_id].put((policy, value))
+                for (worker_id, inference_id), policy, value in zip(metadata_player, policies, values):
+                    self.player_result_queues[worker_id].put((policy, value, inference_id))
 
             # Process opponent network
             if mode == "arena" and batch_boards_opponent:
-                policies, values = self.opponent_network.predict_batch(batch_boards_opponent, batch_games_opponent)
-                for worker_id, policy, value in zip(metadata_opponent, policies, values):
-                    self.opponent_result_queues[worker_id].put((policy, value))
+                policies, values = self.opponent_network.predict_batch(batch_boards_opponent, batch_games_opponent,
+                                                                       return_random=True if opponent=="mcts" else False)
+                for (worker_id, inference_id), policy, value in zip(metadata_opponent, policies, values):
+                    self.opponent_result_queues[worker_id].put((policy, value, inference_id))
 
     def generate_training_workers(self):
+        Node.next_inference_id = 0
         self.stop_agents_event = mp.Event()
 
         # Global inference queue shared between all workers and the inference loop
@@ -295,6 +333,7 @@ class EnhancedTrainer:
             agent.start()
 
     def generate_pit_workers(self):
+        Node.next_inference_id = 0
         self.stop_agents_event = mp.Event()
 
         # Global inference queue shared between all workers and the inference loop
@@ -338,7 +377,7 @@ class EnhancedTrainer:
         folder = self.args.checkpoint
         if not os.path.exists(folder):
             os.makedirs(folder)
-        filename = os.path.join(folder, self.get_checkpoint_file("samples_", iteration))
+        filename = os.path.join(folder, self.get_checkpoint_file("Latest_samples", iteration))
         with open(filename, "wb+") as f:
             Pickler(f).dump(self.training_samples_history)
 
@@ -346,20 +385,18 @@ class EnhancedTrainer:
         # model_file = os.path.join(self.args.load_folder_file[0], self.args.load_folder_file[1])
         sample_file = os.path.join(self.args.load_folder_file[0], self.args.load_folder_file[2])
         if not os.path.isfile(sample_file):
-            log.warning(f'File "{sample_file}" with trainExamples not found!')
+            log_warning(f'Training Examples File not found!')
             return
         else:
-            log.info("File with trainExamples found. Loading it...")
             with open(sample_file, "rb") as f:
                 self.training_samples_history = Unpickler(f).load()
-            log.info('Loading done!')
 
             # examples based on the model were already collected (loaded)
             self.skip_first_step_self_play = True
 
     @staticmethod
     def get_checkpoint_file(name, iteration):
-        return 'checkpoint_' + name + str(iteration) + '.pth.tar'
+        return 'latest_checkpoint' + '.pth.tar'
 
 class Trainer:
     """
@@ -385,8 +422,6 @@ class Trainer:
         # Play the full episode until game has ended
         while True:
             episode_step += 1
-            if game.phase == 0:
-                self.game_manager.draw_board_cv2(game, self.current_player, turn_number=(episode_step-1)/3, save=True)
 
             # Get the current policy according to the neural network and MCTS. The neural network suggests
             # the initial policy and the mcts refines it with rollouts. The number of new states to be explored
@@ -404,7 +439,6 @@ class Trainer:
 
             # If there is a winner the game has ended. Return the training samples without the current player property.
             if winner != 0:
-                self.game_manager.draw_board_cv2(game, self.current_player, turn_number=(episode_step-1)/3+1, save=True)
                 # input("This is how the game ended. Winner: " + str(winner) +
                 #       ". Do you want to continue? (Press Enter)")
                 game = self.game_manager.reset_board()
@@ -502,11 +536,13 @@ class Trainer:
 
             # region Sample History
             # Ring buffer sample history
+            """
             if len(self.training_samples_history) > self.args.max_history_length:
                 log.warning(
                     f"Removing the oldest entry in trainExamples. "
                     f"len(trainExamplesHistory) = {len(self.training_samples_history)}")
                 self.training_samples_history.pop(0)
+            """
             # Backup history to a file
             self.save_training_samples(i - 1)
             # endregion
